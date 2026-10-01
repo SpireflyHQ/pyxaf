@@ -1,0 +1,30 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Local research artifacts (specs, samples, experiments) — not for publication
+.research/
+
+# Test, coverage and tool caches
+.pytest_cache/
+.hypothesis/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.benchmarks/
+
+# Docs build output
+site/
+
+# Zensical build cache
+.cache/

@@ -1,0 +1,65 @@
+# Hooks for prek (https://github.com/j178/prek) or pre-commit. Install once with
+#   uvx prek install        (or: uvx pre-commit install)
+# Run everything with
+#   uvx prek run --all-files
+# Dependabot (ecosystem "pre-commit") keeps the revs current.
+
+# Vendored official XSDs, generated catalogues and auditfile fixtures are kept byte-for-byte
+# (BOMs, CRLF, ISO-8859-1/windows-1252 bytes and trailing whitespace are test signals there).
+exclude: |
+  (?x)^(
+    src/pyxaf/schemas/.*|
+    src/pyxaf/catalogue/_generated_.*\.py|
+    tests/fixtures/.*|
+    tests/data/.*
+  )$
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-illegal-windows-names
+      - id: check-added-large-files
+        args: [--maxkb=500]
+      - id: detect-private-key
+
+  - repo: https://github.com/abravalheri/validate-pyproject
+    rev: "0.26"
+    hooks:
+      - id: validate-pyproject
+        # Also validate [tool.*] tables (ruff, mypy, pytest, …) against SchemaStore.
+        additional_dependencies: ["validate-pyproject-schema-store[all]"]
+
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: "0.12.21"
+    hooks:
+      - id: uv-lock
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.9
+    hooks:
+      - id: ruff-check
+        args: [--fix, --show-fixes]
+      - id: ruff-format
+
+  - repo: https://github.com/crate-ci/typos
+    rev: v1.50.3
+    hooks:
+      - id: typos
+        # Report only; never auto-"correct" Dutch domain words. Config: [tool.typos] in pyproject.toml.
+        args: [--force-exclude]
+
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: v1.30.1
+    hooks:
+      - id: zizmor
+        args: [--no-progress, --persona=pedantic]

@@ -1,0 +1,31 @@
+name: Feature request
+description: Suggest a new feature, validation rule, export or API improvement.
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > [!CAUTION]
+        > **Never upload, attach or paste a real client or company auditfile** in an issue. Auditfiles contain
+        > personal and financial data. Use hand-made or anonymised snippets only.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What are you trying to do, and why is it hard or impossible today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: API sketch, CLI flags, new finding code, export format, …
+  - type: textarea
+    id: references
+    attributes:
+      label: Specification references
+      description: Relevant parts of the XAF/RGS specifications, official consistency rules, or audit practice.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

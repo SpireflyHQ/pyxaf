@@ -1,0 +1,85 @@
+name: File compatibility report
+description: A file from some accounting package is detected, read or validated incorrectly.
+labels: ["compatibility", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > [!CAUTION]
+        > **Do not upload the auditfile. Not the whole file, not a zip, not "just the header".**
+        > Real auditfiles contain personal data (names, addresses, IBANs, VAT and KvK numbers) and complete
+        > financial records of a company. Sharing them may breach the GDPR (AVG) and your duty of confidentiality,
+        > and public issues cannot be fully deleted.
+        >
+        > What helps us most: the exporting software and version, what pyxaf detected, the finding codes it
+        > reported, and a **hand-made or anonymised** snippet that shows the quirk (wrong namespace, encoding,
+        > amount format, element order, …). See
+        > [CONTRIBUTING.md](https://github.com/SpireflyHQ/pyxaf/blob/main/CONTRIBUTING.md#contributing-anonymised-samples).
+  - type: checkboxes
+    id: no-real-data
+    attributes:
+      label: Data protection
+      options:
+        - label: I have **not** attached a real auditfile, and everything below is fictitious or anonymised.
+          required: true
+  - type: input
+    id: exporting-software
+    attributes:
+      label: Exporting software and version
+      placeholder: "e.g. AFAS Profit 5, Exact Globe 412, Uniconta, Odoo 18"
+    validations:
+      required: true
+  - type: dropdown
+    id: xaf-version
+    attributes:
+      label: Version the file claims or should be
+      options:
+        - XAF 4.0
+        - XAF 3.2.1
+        - XAF 3.2
+        - XAF 3.1
+        - XAF 3.0
+        - CLAIR2
+        - ADF (CLAIR1)
+        - Unknown
+    validations:
+      required: true
+  - type: textarea
+    id: detection
+    attributes:
+      label: What pyxaf detected
+      description: Output of `print(pyxaf.detect(path))` (version, namespace, encoding, confidence, reasons). Remove any real data.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: findings
+    attributes:
+      label: Finding codes reported
+      description: |
+        Finding codes and counts, e.g. from
+        `print(dict(pyxaf.validate(path).counts))` or `pyxaf validate FILE --format json`.
+        Codes and counts alone are fine; check messages for real values before pasting them.
+      render: text
+  - type: textarea
+    id: snippet
+    attributes:
+      label: Anonymised snippet
+      description: |
+        The smallest XML fragment that shows the quirk, with all names, numbers, descriptions and amounts
+        replaced by fictitious values. Mention the encoding, BOM and line endings if they matter.
+      render: xml
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What should pyxaf have done?
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: pyxaf and Python version
+      placeholder: "pyxaf 0.1.0, Python 3.13.7, Windows 11"
+    validations:
+      required: true

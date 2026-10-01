@@ -1,0 +1,85 @@
+name: Bug report
+description: pyxaf crashes, gives a wrong result, or reports a wrong finding.
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > [!CAUTION]
+        > **Never upload, attach or paste a real client or company auditfile** (.xaf/.xml/.adf, also not zipped
+        > or "just a part"). Auditfiles contain personal data (names, addresses, IBANs, VAT and KvK numbers)
+        > and complete financial records. Issues are public and cannot be fully deleted.
+        >
+        > Share version information, finding codes and a small **hand-made or anonymised** snippet instead.
+        > See [CONTRIBUTING.md](https://github.com/SpireflyHQ/pyxaf/blob/main/CONTRIBUTING.md#contributing-anonymised-samples).
+        > Security problems go to [private vulnerability reporting](https://github.com/SpireflyHQ/pyxaf/security/advisories/new).
+  - type: checkboxes
+    id: no-real-data
+    attributes:
+      label: Data protection
+      options:
+        - label: This issue contains **no real client or company data** (no real auditfile, names, IBANs, VAT/KvK numbers or amounts).
+          required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproducer
+    attributes:
+      label: Minimal reproducer
+      description: |
+        Python code or CLI command, plus the smallest **hand-made or anonymised** XML snippet that shows the problem.
+        Keep the encoding/namespace details that matter, replace all names, numbers and amounts with fictitious ones.
+      render: python
+  - type: textarea
+    id: output
+    attributes:
+      label: Traceback, output or finding codes
+      description: Full traceback, or the finding codes (`XAF<nnnn>`) and messages pyxaf reported. Check them for real data first.
+      render: text
+  - type: input
+    id: pyxaf-version
+    attributes:
+      label: pyxaf version
+      description: "`python -c \"import pyxaf; print(pyxaf.__version__)\"`"
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: python-version
+    attributes:
+      label: Python version and operating system
+      placeholder: "3.13.7 on Windows 11"
+    validations:
+      required: true
+  - type: dropdown
+    id: xaf-version
+    attributes:
+      label: Auditfile version
+      description: As reported by `pyxaf.detect(path).version`, if known.
+      options:
+        - XAF 4.0
+        - XAF 3.2.1
+        - XAF 3.2
+        - XAF 3.1
+        - XAF 3.0
+        - CLAIR2
+        - ADF (CLAIR1)
+        - Unknown / not detected
+    validations:
+      required: true
+  - type: input
+    id: exporting-software
+    attributes:
+      label: Exporting software
+      description: Accounting package (and version) that produced the file.
+      placeholder: "e.g. Exact Online, AFAS Profit, Twinfield, Snelstart, Odoo 18, …"
+  - type: input
+    id: extras
+    attributes:
+      label: Installed extras
+      placeholder: "none / xsd / polars / all …"

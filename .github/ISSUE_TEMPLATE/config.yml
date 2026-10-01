@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation and help
+    url: https://github.com/SpireflyHQ/pyxaf/blob/main/SUPPORT.md
+    about: Most questions are answered in the documentation; SUPPORT.md lists where to ask.
+  - name: Report a security vulnerability
+    url: https://github.com/SpireflyHQ/pyxaf/security/advisories/new
+    about: Please report security problems privately, never in a public issue.
+  - name: Contributing guide (incl. how to anonymise a sample)
+    url: https://github.com/SpireflyHQ/pyxaf/blob/main/CONTRIBUTING.md
+    about: Read this before sharing any auditfile content.

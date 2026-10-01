@@ -1,0 +1,13 @@
+# Keep vendored official schemas and auditfile fixtures byte-for-byte: CRLF line endings, BOMs and
+# legacy encodings (ISO-8859-1, windows-1252) are part of what pyxaf must handle and test.
+src/pyxaf/schemas/** -text
+tests/fixtures/** -text
+tests/data/** -text
+*.xaf -text
+*.adf -text
+
+# Generated files: collapsed in GitHub diffs and left out of the language statistics.
+# Regenerate with `uvx nox -s generate`; never edit them by hand.
+src/pyxaf/catalogue/_generated_*.py linguist-generated=true
+docs/reference/codes.md linguist-generated=true
+docs/reference/tables.md linguist-generated=true

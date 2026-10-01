@@ -1,0 +1,132 @@
+name: Release
+
+# Release flow: `uv version --bump …`, update CHANGELOG.md, commit, `git tag -a vX.Y.Z`, push the tag.
+# Final versions go to PyPI; pre-release tags (vX.Y.ZaN / bN / rcN / .devN) go to TestPyPI only.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FORCE_COLOR: "1"
+  UV_LOCKED: "1"
+  UV_NO_PROGRESS: "1"
+
+jobs:
+  build:
+    name: Build and check distributions
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      prerelease: ${{ steps.kind.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          # No cache in the release pipeline (cache-poisoning hardening).
+          enable-cache: false
+          python-version: "3.14"
+      - name: Tag must match the version in pyproject.toml
+        run: |
+          version="$(uv version --short)"
+          echo "pyproject version: $version, tag: $GITHUB_REF_NAME"
+          test "v$version" = "$GITHUB_REF_NAME"
+      - name: Pre-release?
+        id: kind
+        run: |
+          if [[ "$GITHUB_REF_NAME" =~ (a|b|rc|\.dev)[0-9]+$ ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build sdist and wheel
+        run: uv build --no-sources
+      - name: twine check
+        run: uvx twine@7.0.0 check --strict dist/*
+      - name: Smoke-test the wheel
+        run: uv run --isolated --no-project --with dist/*.whl python -I -c "import pyxaf; print(pyxaf.__version__)"
+      - name: Smoke-test the sdist
+        run: uv run --isolated --no-project --with dist/*.tar.gz python -I -c "import pyxaf; print(pyxaf.__version__)"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: [build]
+    if: needs.build.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/p/pyxaf
+    permissions:
+      id-token: write # Trusted Publishing (OIDC) + PEP 740 attestations
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+
+  publish-testpypi:
+    name: Publish to TestPyPI (pre-release)
+    needs: [build]
+    if: needs.build.outputs.prerelease == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/pyxaf
+    permissions:
+      id-token: write # Trusted Publishing (OIDC) + PEP 740 attestations
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  github-release:
+    name: Create GitHub release
+    needs: [build, publish-pypi, publish-testpypi]
+    # Runs after whichever publish job applied to this tag succeeded.
+    if: >-
+      !cancelled() && needs.build.result == 'success' &&
+      (needs.publish-pypi.result == 'success' || needs.publish-testpypi.result == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # create the release and upload the distributions
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist/
+      - name: gh release create
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ needs.build.outputs.prerelease }}
+        run: |
+          flags=()
+          if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --verify-tag \
+            --generate-notes \
+            "${flags[@]}"

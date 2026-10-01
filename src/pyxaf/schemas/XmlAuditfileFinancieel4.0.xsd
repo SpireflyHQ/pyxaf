@@ -1,0 +1,349 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xsd:schema targetNamespace="http://www.odb.belastingdienst.nl/Belastingdienst/BCPP/1.1/structures/XmlauditfileXAF_4.0"
+		elementFormDefault="qualified" attributeFormDefault="unqualified" version="."
+		xmlns:str="http://www.odb.belastingdienst.nl/Belastingdienst/BCPP/1.1/structures/XmlauditfileXAF_4.0"
+		xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+	<xsd:element name="auditfile">
+		<xsd:complexType>
+			<xsd:sequence>
+				<xsd:element name="header">
+					<xsd:complexType>
+						<xsd:sequence>
+							<xsd:element name="fiscalYear" type="str:TypeString9"/>
+							<xsd:element name="startDate" type="xsd:date"/>
+							<xsd:element name="endDate" type="xsd:date"/>
+							<xsd:element name="curCode" type="str:TypeCurrencycodeIso4217"/>
+							<xsd:element name="dateCreated" type="xsd:date"/>
+							<xsd:element name="softwareDesc" type="str:TypeString50"/>
+							<xsd:element name="softwareVersion" type="str:TypeString20"/>
+							<xsd:element name="RGSVersion" minOccurs="0" type="str:TypeString20"/>
+						</xsd:sequence>
+					</xsd:complexType>
+				</xsd:element>
+				<xsd:element name="company">
+					<xsd:complexType>
+						<xsd:sequence>
+							<xsd:element name="Commercenr" minOccurs="0" type="str:TypeString100"/>
+							<xsd:element name="companyName" type="str:TypeString255"/>
+							<xsd:element name="taxRegistrationCountry" type="str:TypeCountrycodeIso3166"/>
+							<xsd:element name="taxRegIdent" type="str:TypeString30"/>
+							<xsd:element name="streetAddress" minOccurs="0" maxOccurs="unbounded">
+								<xsd:complexType>
+									<xsd:sequence>
+										<xsd:element name="streetname" minOccurs="0" type="str:TypeString100"/>
+										<xsd:element name="number" minOccurs="0" type="str:TypeString15"/>
+										<xsd:element name="numberExtension" minOccurs="0" type="str:TypeString999"/>
+										<xsd:element name="city" minOccurs="0" type="str:TypeString50"/>
+										<xsd:element name="postalCode" minOccurs="0" type="str:TypeString10"/>
+										<xsd:element name="country" minOccurs="0" type="str:TypeCountrycodeIso3166"/>
+									</xsd:sequence>
+								</xsd:complexType>
+							</xsd:element>
+							<xsd:element name="customersSuppliers" minOccurs="0">
+								<xsd:complexType>
+									<xsd:sequence>
+										<xsd:element name="customerSupplier" minOccurs="0" maxOccurs="unbounded">
+											<xsd:complexType>
+												<xsd:sequence>
+													<xsd:element name="custSupID" type="str:TypeIdentificationString35"/>
+													<xsd:element name="custSupName" minOccurs="0" type="str:TypeString50"/>
+													<xsd:element name="eMail" minOccurs="0" type="xsd:token"/>
+													<xsd:element name="commerceNr" minOccurs="0" type="str:TypeString100"/>
+													<xsd:element name="taxRegistrationCountry" minOccurs="0" type="str:TypeCountrycodeIso3166"/>
+													<xsd:element name="taxRegIdent" minOccurs="0" type="str:TypeString30"/>
+													<xsd:element name="custSupTp" minOccurs="0" type="str:TypeCustomersuppliercode"/>
+													<xsd:element name="opBalDesc" minOccurs="0" type="str:TypeAmount2decimals"/>
+													<xsd:element name="opBalTp" minOccurs="0" type="str:TypeDebitcredittype"/>
+													<xsd:element name="clBalDesc" minOccurs="0" type="str:TypeAmount2decimals"/>
+													<xsd:element name="clBalTp" minOccurs="0" type="str:TypeDebitcredittype"/>
+													<xsd:element name="streetAddress" minOccurs="0" maxOccurs="unbounded">
+														<xsd:complexType>
+															<xsd:sequence>
+																<xsd:element name="streetname" minOccurs="0" type="str:TypeString100"/>
+																<xsd:element name="number" minOccurs="0" type="str:TypeString15"/>
+																<xsd:element name="numberExtension" minOccurs="0" type="str:TypeString999"/>
+																<xsd:element name="city" minOccurs="0" type="str:TypeString50"/>
+																<xsd:element name="postalCode" minOccurs="0" type="str:TypeString10"/>
+																<xsd:element name="country" minOccurs="0" type="str:TypeCountrycodeIso3166"/>
+															</xsd:sequence>
+														</xsd:complexType>
+													</xsd:element>
+												</xsd:sequence>
+											</xsd:complexType>
+										</xsd:element>
+									</xsd:sequence>
+								</xsd:complexType>
+							</xsd:element>
+							<xsd:element name="generalLedger" minOccurs="0">
+								<xsd:complexType>
+									<xsd:sequence>
+										<xsd:element name="ledgerAccount" maxOccurs="unbounded">
+											<xsd:complexType>
+												<xsd:sequence>
+													<xsd:element name="accID" type="str:TypeIdentificationString35"/>
+													<xsd:element name="accDesc" type="str:TypeString255"/>
+													<xsd:element name="accTp" type="str:accTp"/>
+													<xsd:element name="RGScode" minOccurs="0" type="str:TypeString255"/>
+												</xsd:sequence>
+											</xsd:complexType>
+										</xsd:element>
+									</xsd:sequence>
+								</xsd:complexType>
+							</xsd:element>
+							<xsd:element name="vatCodes" minOccurs="0">
+								<xsd:complexType>
+									<xsd:sequence>
+										<xsd:element name="vatCode" minOccurs="0" maxOccurs="unbounded">
+											<xsd:complexType>
+												<xsd:sequence>
+													<xsd:element name="vatID" type="str:TypeIdentificationString35"/>
+													<xsd:element name="vatDesc" type="str:TypeString100"/>
+													<xsd:element name="vatToPayAccID" minOccurs="0" type="str:TypeIdentificationString35"/>
+													<xsd:element name="vatToClaimAccID" minOccurs="0" type="str:TypeIdentificationString35"/>
+												</xsd:sequence>
+											</xsd:complexType>
+										</xsd:element>
+									</xsd:sequence>
+								</xsd:complexType>
+							</xsd:element>
+							<xsd:element name="periods" minOccurs="0">
+								<xsd:complexType>
+									<xsd:sequence>
+										<xsd:element name="period" minOccurs="0" maxOccurs="unbounded">
+											<xsd:complexType>
+												<xsd:sequence>
+													<xsd:element name="periodNumber" type="str:TypeNonnegativeinteger3"/>
+													<xsd:element name="startDatePeriod" type="xsd:date"/>
+													<xsd:element name="endDatePeriod" type="xsd:date"/>
+												</xsd:sequence>
+											</xsd:complexType>
+										</xsd:element>
+									</xsd:sequence>
+								</xsd:complexType>
+							</xsd:element>
+							<xsd:element name="openingBalance" minOccurs="0">
+								<xsd:complexType>
+									<xsd:sequence>
+										<xsd:element name="linesCount" type="str:TypeNonnegativeinteger10"/>
+										<xsd:element name="totalDebit" type="str:TypeAmount2decimals"/>
+										<xsd:element name="totalCredit" type="str:TypeAmount2decimals"/>
+										<xsd:element name="obLine" minOccurs="0" maxOccurs="unbounded">
+											<xsd:complexType>
+												<xsd:sequence>
+													<xsd:element name="nr" type="str:TypeIdentificationString35"/>
+													<xsd:element name="accID" type="str:TypeIdentificationString35"/>
+													<xsd:element name="amnt" type="str:TypeAmount2decimals"/>
+													<xsd:element name="amntTp" type="str:TypeDebitcredittype"/>
+												</xsd:sequence>
+											</xsd:complexType>
+										</xsd:element>
+									</xsd:sequence>
+								</xsd:complexType>
+							</xsd:element>
+							<xsd:element name="transactions" minOccurs="0">
+								<xsd:complexType>
+									<xsd:sequence>
+										<xsd:element name="linesCount" type="str:TypeNonnegativeinteger10"/>
+										<xsd:element name="totalDebit" type="str:TypeAmount2decimals"/>
+										<xsd:element name="totalCredit" type="str:TypeAmount2decimals"/>
+										<xsd:element name="journal" minOccurs="0" maxOccurs="unbounded">
+											<xsd:complexType>
+												<xsd:sequence>
+													<xsd:element name="jrnID" type="str:TypeIdentificationString35"/>
+													<xsd:element name="desc" type="str:TypeString9999"/>
+													<xsd:element name="jrnTp" minOccurs="0" type="str:TypeJournaltype"/>
+													<xsd:element name="offsetAccID" minOccurs="0" type="str:TypeIdentificationString35"/>
+													<xsd:element name="transaction" minOccurs="0" maxOccurs="unbounded">
+														<xsd:complexType>
+															<xsd:sequence>
+																<xsd:element name="nr" type="str:TypeIdentificationString35"/>
+																<xsd:element name="desc" minOccurs="0" type="str:TypeString9999"/>
+																<xsd:element name="periodNumber" type="str:TypeNonnegativeinteger3"/>
+																<xsd:element name="trDt" type="xsd:date"/>
+																<xsd:element name="Source" minOccurs="0" type="str:TypeString999"/>
+																<xsd:element name="User" minOccurs="0" type="str:TypeString999"/>
+																<xsd:element name="trLine" minOccurs="0" maxOccurs="unbounded">
+																	<xsd:complexType>
+																		<xsd:sequence>
+																			<xsd:element name="nr" type="str:TypeIdentificationString35"/>
+																			<xsd:element name="accID" type="str:TypeIdentificationString35"/>
+																			<xsd:element name="docRef" type="str:TypeString255"/>
+																			<xsd:element name="effDate" type="xsd:date"/>
+																			<xsd:element name="settDate" minOccurs="0" type="xsd:date"/>
+																			<xsd:element name="desc" minOccurs="0" type="str:TypeString9999"/>
+																			<xsd:element name="amnt" type="str:TypeAmount2decimals"/>
+																			<xsd:element name="amntTp" type="str:TypeDebitcredittype"/>
+																			<xsd:element name="custSupID" minOccurs="0" type="str:TypeIdentificationString35"/>
+																			<xsd:element name="invRef" minOccurs="0" type="str:TypeString255"/>
+																			<xsd:element name="receivingDocRef" minOccurs="0" type="str:TypeString255"/>
+																			<xsd:element name="shipDocRef" minOccurs="0" type="str:TypeString255"/>
+																			<xsd:element name="cost" minOccurs="0" type="str:TypeString999"/>
+																			<xsd:element name="product" minOccurs="0" type="str:TypeString999"/>
+																			<xsd:element name="project" minOccurs="0" type="str:TypeString999"/>
+																			<xsd:element name="workCostArrRef" minOccurs="0" type="str:TypeString255"/>
+																			<xsd:element name="bankAccNr" minOccurs="0" type="str:TypeIdentificationString35"/>
+																			<xsd:element name="offsetBankAccNr" minOccurs="0" type="str:TypeIdentificationString35"/>
+																			<xsd:element name="vat" minOccurs="0" maxOccurs="99">
+																				<xsd:complexType>
+																					<xsd:sequence>
+																						<xsd:element name="vatID" type="str:TypeIdentificationString35"/>
+																						<xsd:element name="vatPerc" type="str:TypeDecimal8"/>
+																						<xsd:element name="vatAmnt" type="str:TypeAmount2decimals"/>
+																						<xsd:element name="vatAmntTp" type="str:TypeDebitcredittype"/>
+																					</xsd:sequence>
+																				</xsd:complexType>
+																			</xsd:element>
+																			<xsd:element name="currency" minOccurs="0">
+																				<xsd:complexType>
+																					<xsd:sequence>
+																						<xsd:element name="curCode" type="str:TypeCurrencycodeIso4217"/>
+																						<xsd:element name="curAmnt" type="str:TypeAmount2decimals"/>
+																					</xsd:sequence>
+																				</xsd:complexType>
+																			</xsd:element>
+																		</xsd:sequence>
+																	</xsd:complexType>
+																</xsd:element>
+															</xsd:sequence>
+														</xsd:complexType>
+													</xsd:element>
+												</xsd:sequence>
+											</xsd:complexType>
+										</xsd:element>
+									</xsd:sequence>
+								</xsd:complexType>
+							</xsd:element>
+						</xsd:sequence>
+					</xsd:complexType>
+				</xsd:element>
+			</xsd:sequence>
+		</xsd:complexType>
+	</xsd:element>
+	<xsd:simpleType name="TypeAmount2decimals">
+		<xsd:restriction base="xsd:decimal">
+			<xsd:totalDigits value="20"/>
+			<xsd:fractionDigits value="2"/>
+		</xsd:restriction>
+	</xsd:simpleType>
+	<xsd:simpleType name="TypeCountrycodeIso3166">
+		<xsd:restriction base="xsd:string">
+			<xsd:length value="2"/>
+			<xsd:pattern value="\D*"/>
+		</xsd:restriction>
+	</xsd:simpleType>
+	<xsd:simpleType name="TypeCurrencycodeIso4217">
+		<xsd:restriction base="xsd:string">
+			<xsd:maxLength value="3"/>
+			<xsd:pattern value="\D*"/>
+		</xsd:restriction>
+	</xsd:simpleType>
+	<xsd:simpleType name="TypeCustomersuppliercode">
+		<xsd:restriction base="xsd:string">
+			<xsd:length value="1"/>
+			<xsd:enumeration value="B"/>
+			<xsd:enumeration value="C"/>
+			<xsd:enumeration value="S"/>
+		</xsd:restriction>
+	</xsd:simpleType>
+	<xsd:simpleType name="TypeDebitcredittype">
+		<xsd:restriction base="xsd:string">
+			<xsd:length value="1"/>
+			<xsd:pattern value="\D*"/>
+			<xsd:enumeration value="C"/>
+			<xsd:enumeration value="D"/>
+		</xsd:restriction>
+	</xsd:simpleType>
+	<xsd:simpleType name="TypeDecimal8">
+		<xsd:restriction base="xsd:decimal">
+			<xsd:totalDigits value="8"/>
+			<xsd:fractionDigits value="3"/>
+			<xsd:minInclusive value="0"/>
+		</xsd:restriction>
+	</xsd:simpleType>
+	<xsd:simpleType name="TypeIdentificationString35">
+		<xsd:restriction base="xsd:string">
+			<xsd:maxLength value="35"/>
+		</xsd:restriction>
+	</xsd:simpleType>
+	<xsd:simpleType name="TypeJournaltype">
+		<xsd:restriction base="xsd:string">
+			<xsd:maxLength value="2"/>
+			<xsd:enumeration value="B"/>
+			<xsd:enumeration value="C"/>
+			<xsd:enumeration value="G"/>
+			<xsd:enumeration value="M"/>
+			<xsd:enumeration value="O"/>
+			<xsd:enumeration value="P"/>
+			<xsd:enumeration value="S"/>
+			<xsd:enumeration value="T"/>
+			<xsd:enumeration value="Y"/>
+			<xsd:enumeration value="Z"/>
+		</xsd:restriction>
+	</xsd:simpleType>
+	<xsd:simpleType name="TypeNonnegativeinteger10">
+		<xsd:restriction base="xsd:nonNegativeInteger">
+			<xsd:totalDigits value="10"/>
+		</xsd:restriction>
+	</xsd:simpleType>
+	<xsd:simpleType name="TypeNonnegativeinteger3">
+		<xsd:restriction base="xsd:nonNegativeInteger">
+			<xsd:totalDigits value="3"/>
+		</xsd:restriction>
+	</xsd:simpleType>
+	<xsd:simpleType name="TypeString10">
+		<xsd:restriction base="xsd:string">
+			<xsd:maxLength value="10"/>
+		</xsd:restriction>
+	</xsd:simpleType>
+	<xsd:simpleType name="TypeString100">
+		<xsd:restriction base="xsd:string">
+			<xsd:maxLength value="100"/>
+		</xsd:restriction>
+	</xsd:simpleType>
+	<xsd:simpleType name="TypeString15">
+		<xsd:restriction base="xsd:string">
+			<xsd:maxLength value="15"/>
+		</xsd:restriction>
+	</xsd:simpleType>
+	<xsd:simpleType name="TypeString20">
+		<xsd:restriction base="xsd:string">
+			<xsd:maxLength value="20"/>
+		</xsd:restriction>
+	</xsd:simpleType>
+	<xsd:simpleType name="TypeString255">
+		<xsd:restriction base="xsd:string">
+			<xsd:maxLength value="255"/>
+		</xsd:restriction>
+	</xsd:simpleType>
+	<xsd:simpleType name="TypeString30">
+		<xsd:restriction base="xsd:string">
+			<xsd:maxLength value="30"/>
+		</xsd:restriction>
+	</xsd:simpleType>
+	<xsd:simpleType name="TypeString50">
+		<xsd:restriction base="xsd:string">
+			<xsd:maxLength value="50"/>
+		</xsd:restriction>
+	</xsd:simpleType>
+	<xsd:simpleType name="TypeString9">
+		<xsd:restriction base="xsd:string">
+			<xsd:maxLength value="9"/>
+			<xsd:pattern value="\d{4}|(\d{4}\-\d{4})"/>
+		</xsd:restriction>
+	</xsd:simpleType>
+	<xsd:simpleType name="TypeString999">
+		<xsd:restriction base="xsd:string">
+			<xsd:maxLength value="999"/>
+		</xsd:restriction>
+	</xsd:simpleType>
+	<xsd:simpleType name="TypeString9999">
+		<xsd:restriction base="xsd:string"/>
+	</xsd:simpleType>
+	<xsd:simpleType name="accTp">
+		<xsd:restriction base="xsd:string">
+			<xsd:maxLength value="2"/>
+			<xsd:enumeration value="B"/>
+			<xsd:enumeration value="P"/>
+		</xsd:restriction>
+	</xsd:simpleType>
+</xsd:schema>

@@ -1,0 +1,184 @@
+[project]
+name = "pyxaf"
+version = "0.1.0"
+description = "Read and validate every iteration of the Dutch XML Auditfile Financieel (XAF 4.0, 3.2.1, 3.2, 3.1, 3.0, CLAIR2 and ADF)."
+readme = "README.md"
+authors = [{ name = "Ben van der Burgh", email = "ben@spirefly.com" }]
+maintainers = [{ name = "Ben van der Burgh", email = "ben@spirefly.com" }]
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+dependencies = []
+keywords = [
+    "xaf",
+    "auditfile",
+    "auditfile financieel",
+    "accounting",
+    "audit",
+    "general ledger",
+    "rgs",
+    "belastingdienst",
+    "saf-t",
+    "xml",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Natural Language :: English",
+    "Natural Language :: Dutch",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Office/Business :: Financial :: Accounting",
+    "Topic :: Text Processing :: Markup :: XML",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://github.com/SpireflyHQ/pyxaf"
+Documentation = "https://spireflyhq.github.io/pyxaf/"
+Repository = "https://github.com/SpireflyHQ/pyxaf"
+Issues = "https://github.com/SpireflyHQ/pyxaf/issues"
+Changelog = "https://github.com/SpireflyHQ/pyxaf/blob/main/CHANGELOG.md"
+
+[project.optional-dependencies]
+xsd = ["lxml>=6.1.3"]
+arrow = ["nanoarrow>=0.7"]
+polars = ["polars>=1.44", "nanoarrow>=0.7"]
+pandas = ["pandas>=2.2", "pyarrow>=17", "nanoarrow>=0.7"]
+parquet = ["pyarrow>=17", "nanoarrow>=0.7"]
+cli = ["typer>=0.16"]
+all = ["pyxaf[xsd,arrow,polars,pandas,parquet,cli]"]
+
+[project.scripts]
+pyxaf = "pyxaf.__main__:main"
+
+[dependency-groups]
+test = ["pytest>=9", "pytest-cov>=7", "hypothesis>=6.130"]
+typing = ["mypy>=2", "pyright>=1.1.400"]
+lint = ["ruff>=0.16"]
+gen = ["xmlschema>=4.3"]
+dev = [
+    { include-group = "test" },
+    { include-group = "typing" },
+    { include-group = "lint" },
+    { include-group = "gen" },
+]
+docs = [
+    "mkdocstrings-python>=2.0.9",
+    "zensical>=0.0.67",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.21,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.uv.build-backend]
+# The sdist also carries the tests and changelog, so downstream packagers can run the suite.
+source-include = ["tests/**", "CHANGELOG.md"]
+
+[tool.ruff]
+line-length = 100
+extend-exclude = ["src/pyxaf/catalogue/_generated_*.py"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W", "F", "I", "B", "UP", "SIM", "C4", "RUF", "PT", "PL", "D", "N", "S", "TC", "PERF",
+    "PIE", "RET", "ARG", "PTH", "ERA", "FBT003", "ISC", "LOG", "G",
+]
+ignore = [
+    "D105", "D107",       # magic methods / __init__ documented on the class
+    "PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR2004",
+    "S101",               # asserts are used for type narrowing
+    "S405", "S314",       # same
+    "RUF001", "RUF002", "RUF003",  # Dutch text contains non-ASCII characters on purpose
+    "FBT003",             # pyexpat's Parse(data, isfinal) takes a positional bool
+    "TC001", "TC003",     # annotations are strings (PEP 563); runtime imports are cheap stdlib
+    "PLR0917",
+    "UP042",              # (str, Enum) keeps Typer's enum handling simple
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D", "S", "PLR", "ARG", "N802", "PT011", "PT018", "PLC0415", "E501"]
+"scripts/**" = ["D", "S", "T20", "PLR"]
+"noxfile.py" = ["D"]
+"benchmarks/**" = ["D", "S", "T20", "E501", "B905", "PTH123", "PLC0415", "SIM115"]
+
+[tool.mypy]
+strict = true
+python_version = "3.11"
+warn_unreachable = true
+enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
+files = ["src/pyxaf"]
+
+[[tool.mypy.overrides]]
+module = ["nanoarrow.*", "pyarrow.*", "lxml.*"]
+ignore_missing_imports = true
+
+[tool.pyright]
+include = ["src/pyxaf"]
+pythonVersion = "3.11"
+typeCheckingMode = "standard"
+
+[tool.pytest.ini_options]
+minversion = "9.0"
+testpaths = ["tests"]
+pythonpath = ["tests"]
+addopts = ["-ra", "--strict-markers", "--strict-config", "--import-mode=importlib"]
+xfail_strict = true
+log_level = "INFO"
+filterwarnings = ["error"]
+markers = [
+    "slow: long-running (benchmarks, large generated files)",
+    "extras: needs an optional extra (xsd/arrow/polars/pandas/parquet/cli); deselected in the no-extras CI job",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["pyxaf"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_also = ["if TYPE_CHECKING:", "@overload", "raise NotImplementedError", "\\.\\.\\."]
+
+[tool.typos.files]
+# Dutch domain vocabulary is intentional (XAF element names, ADF record labels, official titles).
+extend-exclude = [
+    "src/pyxaf/schemas/",                      # official XSDs, verbatim
+    "src/pyxaf/catalogue/_generated_*.py",     # generated from the XSDs (ISO currency/country codes)
+    "scripts/data/",                           # derived path tables
+    "uv.lock",
+]
+
+[tool.typos.default]
+extend-ignore-re = [
+    "\\bmis-[a-z]+",                          # English "mis-" prefix (mis-declared)
+    "\\b[BW][A-Z][a-z]{2}[A-Z][A-Za-z0-9]*\\b", # RGS reference codes (BVasVio, WAkfAkf)
+]
+
+[tool.typos.default.extend-identifiers]
+arro3 = "arro3"                             # arro3-core (Arrow library)
+
+[tool.typos.default.extend-words]
+unparseable = "unparseable"                 # accepted spelling variant
+# Dutch words that typos would "correct" to English
+adres = "adres"
+periode = "periode"
+relatie = "relatie"
+salaris = "salaris"
+productie = "productie"
+communicatie = "communicatie"
+stichting = "stichting"
+extensie = "extensie"

@@ -1,0 +1,31 @@
+cff-version: 1.2.0
+message: "If you use pyxaf in research or audit work, please cite it as below."
+type: software
+title: "pyxaf: read and validate the Dutch Auditfile Financieel"
+abstract: >-
+  pyxaf is a Python library that reads and validates every iteration of the Dutch
+  Auditfile Financieel (XML Auditfile Financieel 4.0, 3.2.1, 3.2, 3.1 and 3.0, CLAIR2 and
+  the fixed-width ADF/CLAIR1 format) used to exchange general-ledger data with auditors and
+  the Dutch tax authority. It detects the version by scoring signals, streams transactions
+  in constant memory, keeps amounts as exact decimals, and reports data problems as graded,
+  coded findings instead of refusing to load a file. Optional extras add XSD validation and
+  exports to Arrow, polars, pandas and Parquet.
+authors:
+  - family-names: "van der Burgh"
+    given-names: "Ben"
+    email: "ben@spirefly.com"
+    affiliation: "Spirefly"
+repository-code: "https://github.com/SpireflyHQ/pyxaf"
+url: "https://github.com/SpireflyHQ/pyxaf"
+license: MIT
+version: "0.1.0"
+keywords:
+  - auditfile
+  - XAF
+  - "Auditfile Financieel"
+  - accounting
+  - audit
+  - "general ledger"
+  - RGS
+  - XML
+  - Python

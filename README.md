@@ -13,13 +13,6 @@ fixed-width files of 1999 to XAF 4.0, gives you one clean, typed model to work w
 you exactly what is wrong with a file instead of choking on it. No runtime dependencies, no
 upload to anyone's server, no gigabytes of RAM.
 
-```python
-import pyxaf
-
-with pyxaf.open("2024.xaf") as af:
-    print(af.version, af.company.name)  # 4.0 Voorbeeld & Zonen B.V.
-```
-
 ## 🧭 Table of contents
 
 - [Why pyxaf](#-why-pyxaf)

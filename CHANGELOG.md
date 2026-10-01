@@ -8,6 +8,13 @@ change in minor releases. Finding codes are stable: a code is never renumbered o
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-01
+
+### Fixed
+
+- The README no longer opens with an example that reads a file the reader does not have yet;
+  the quickstart downloads the sample files first.
+
 ## [0.1.1] - 2026-10-01
 
 ### Added
@@ -73,6 +80,7 @@ Initial release.
   network or entity resolution, limits on nesting depth, text-node size and decompressed size.
 - Zero runtime dependencies in the core; fully typed (`py.typed`); Python 3.11–3.14.
 
-[Unreleased]: https://github.com/SpireflyHQ/pyxaf/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/SpireflyHQ/pyxaf/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/SpireflyHQ/pyxaf/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/SpireflyHQ/pyxaf/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/SpireflyHQ/pyxaf/releases/tag/v0.1.0

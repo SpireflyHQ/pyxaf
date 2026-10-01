@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ._optional import require
-from .tables import TABLES, Column, Row
+from .tables import TABLES, Column, Row, check_batch_size
 
 if TYPE_CHECKING:
     from .tables import Tables
@@ -60,29 +60,59 @@ def _validity(values: Sequence[Any]) -> tuple[bytes | None, int]:
     return (bytes(bits) if nulls else None), nulls
 
 
+def scaled_integer(value: Decimal, precision: int, scale: int, *, round_: bool) -> int | None:
+    """``value × 10**scale`` as an integer with at most ``precision`` digits.
+
+    Returns ``None`` when the value does not fit exactly — or, with ``round_``, when it does not
+    fit even after rounding half to even. Pure integer arithmetic on ``as_tuple()``: the result
+    never depends on the active decimal context (precision, rounding mode, traps).
+    """
+    sign, digits, exp = value.as_tuple()
+    if not isinstance(exp, int):  # NaN / infinity
+        return None
+    shift = exp + scale
+    if shift >= 0:
+        if any(digits) and len(digits) + shift > precision:
+            return None
+        n: int = int("".join(map(str, digits))) * 10**shift
+    else:
+        kept, dropped = digits[:shift], digits[shift:]
+        while kept and kept[0] == 0:  # leading zeros do not count against the precision
+            kept = kept[1:]
+        if len(kept) > precision:
+            return None
+        n = int("".join(map(str, kept))) if kept else 0
+        if any(dropped):
+            if not round_:
+                return None
+            first, rest = dropped[0], any(dropped[1:])
+            if first > 5 or (first == 5 and (rest or n % 2)):  # round half to even
+                n += 1
+            if n >= 10**precision:  # rounding added a digit
+                return None
+    return -n if sign else n
+
+
 def _decimal_array(
     na: Any, values: Sequence[Decimal | None], col: Column, keys: Sequence[Any], policy: str
 ) -> Any:
     precision, scale = col.decimal or (20, 2)
-    limit = 10**precision
     out = bytearray(16 * len(values))
     nulled: list[int] = []
     for i, v in enumerate(values):
         if v is None:
             continue
-        scaled = v.scaleb(scale)
-        n = int(scaled)
-        if n != scaled or not -limit < n < limit:
+        n = scaled_integer(v, precision, scale, round_=False)
+        if n is None and policy == "round":
+            n = scaled_integer(v, precision, scale, round_=True)
+        if n is None:
             if policy == "null":
                 nulled.append(i)
                 continue
-            if policy == "round" and -limit < n < limit:
-                n = int(scaled.to_integral_value())  # ROUND_HALF_EVEN
-            else:
-                raise ValueError(
-                    f"column {col.name!r}: value {v} does not fit {col.type} exactly (row with "
-                    f"key {keys[i]!r}); pass on_inexact='null' or 'round' to export anyway"
-                )
+            raise ValueError(
+                f"column {col.name!r}: value {v} does not fit {col.type} exactly (row with "
+                f"key {keys[i]!r}); pass on_inexact='null' or 'round' to export anyway"
+            )
         out[16 * i : 16 * i + 16] = n.to_bytes(16, "little", signed=True)
     if nulled:
         values = list(values)
@@ -105,7 +135,8 @@ def _int_array(
                 f"column {col.name!r}: value {values[bad[0]]} does not fit int64 (row with key "
                 f"{keys[bad[0]]!r}); pass on_inexact='null' to export anyway"
             )
-        values = [None if i in set(bad) else v for i, v in enumerate(values)]
+        nulled = set(bad)
+        values = [None if i in nulled else v for i, v in enumerate(values)]
     return na.c_array(list(values), na.int64())
 
 
@@ -148,14 +179,19 @@ def batches(
     on_inexact: str = "raise",
 ) -> Iterator[Any]:
     """Yield nanoarrow struct arrays of at most ``batch_size`` rows (lazily)."""
+    check_batch_size(batch_size)
     na = _na()
     sch = schema(columns)
-    for chunk in row_batches(rows, batch_size):
-        yield _batch(na, columns, chunk, sch, on_inexact)
+    return (_batch(na, columns, chunk, sch, on_inexact) for chunk in row_batches(rows, batch_size))
 
 
 def row_batches(rows: Iterable[Row], batch_size: int) -> Iterator[list[Row]]:
     """Split rows into lists of at most ``batch_size`` (always at least one, maybe empty)."""
+    check_batch_size(batch_size)
+    return _row_batches(rows, batch_size)
+
+
+def _row_batches(rows: Iterable[Row], batch_size: int) -> Iterator[list[Row]]:
     it = iter(rows)
     first = True
     while True:

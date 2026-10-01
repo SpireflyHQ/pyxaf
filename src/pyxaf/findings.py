@@ -93,6 +93,8 @@ CODES: Mapping[str, CodeInfo] = {
         _c("XAF3005", _W, "Version signals contradict each other"),
         _c("XAF3006", _I, "Continuation file of a split auditfile"),
         _c("XAF3007", _W, "Version could not be determined with certainty"),
+        _c("XAF3008", _W, "Files of a multi-file set have different versions"),
+        _c("XAF3009", _W, "Continuation files are numbered inconsistently"),
         _c("XAF3010", _E, "Required element missing"),
         _c("XAF3011", _E, "Element not defined for this version"),
         _c("XAF3012", _E, "Element occurs more often than allowed"),
@@ -116,6 +118,7 @@ CODES: Mapping[str, CodeInfo] = {
         _c("XAF4005", _W, "Journal offset account not defined"),
         _c("XAF4006", _W, "VAT code account not defined"),
         _c("XAF4007", _E, "Opening balance account not defined"),
+        _c("XAF4008", _W, "References not checked: the master data section is missing"),
         # 5xxx totals & balance
         _c(
             "XAF5004",
@@ -150,6 +153,7 @@ CODES: Mapping[str, CodeInfo] = {
         _c("XAF6008", _E, "Duplicate VAT code"),
         _c("XAF6009", _E, "Duplicate period number"),
         _c("XAF6010", _W, "Conflicting master data across files"),
+        _c("XAF6011", _E, "Files of a multi-file set belong to different administrations"),
         # 7xxx data quality
         _c("XAF7001", _I, "Negative amount"),
         _c("XAF7002", _W, "Transaction date outside the fiscal year"),
@@ -244,6 +248,7 @@ class FindingCollector:
     file: int = 0
     _items: list[Finding] = field(default_factory=list)
     _counts: Counter[str] = field(default_factory=Counter)
+    _severities: Counter[Severity] = field(default_factory=Counter)
     _keys: set[tuple[object, ...]] = field(default_factory=set)
 
     def add(
@@ -270,6 +275,7 @@ class FindingCollector:
         else:
             sev = severity or info.severity
         self._counts[code] += 1
+        self._severities[sev] += 1  # before the limits: the verdict must not depend on them
         if self.max_per_code is not None and self._counts[code] > self.max_per_code:
             return
         if self.max_total is not None and len(self._items) >= self.max_total:
@@ -309,6 +315,16 @@ class FindingCollector:
     def counts(self) -> Mapping[str, int]:
         """Number of occurrences per code, including suppressed ones."""
         return dict(self._counts)
+
+    @property
+    def severity_counts(self) -> Mapping[Severity, int]:
+        """Number of findings per (effective) severity, including suppressed ones."""
+        return dict(self._severities)
+
+    @property
+    def max_severity(self) -> Severity | None:
+        """Highest severity of all findings, including suppressed ones."""
+        return max(self._severities, default=None)
 
     @property
     def suppressed(self) -> int:

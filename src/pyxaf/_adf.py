@@ -33,7 +33,7 @@ from .models import (
     VatLine,
 )
 from .raw import RawRecord
-from .values import parse_adf_amount, parse_adf_date, parse_int
+from .values import exact_sub, parse_adf_amount, parse_adf_date, parse_int
 
 if TYPE_CHECKING:
     from .reader import _Master
@@ -357,24 +357,36 @@ class AdfReader:
 
     def _line(self, rec: RawRecord, spec: dict[str, AdfField], seq: int, tx_seq: int) -> Line:
         f = rec.fields
-        d = self._num(rec, spec["debet"]) or _ZERO
-        c = self._num(rec, spec["credit"]) or _ZERO
-        if (d < 0 or c < 0) and self._vf:
-            self._findings.add("XAF7001", "negative debit/credit amount", line=rec.line)
-        if self._policy == "abs":
-            d, c = abs(d), abs(c)
-        if d and c and self._vf:
-            self._findings.add(
-                "XAF7013", "line has both a debit and a credit amount", line=rec.line
-            )
-        signed = abs(d - c) if d == c else d - c  # no -0.00
-        if c and not d:
-            amount, side = c, Side.CREDIT
-        elif d and not c:
-            amount, side = d, Side.DEBIT
+        # a blank column is zero; an invalid one makes the line's amounts unknown (None), as in
+        # the XML formats: never invent a financial value
+        d = self._num(rec, spec["debet"]) if f["debet"].strip() else _ZERO
+        c = self._num(rec, spec["credit"]) if f["credit"].strip() else _ZERO
+        amount: Decimal | None
+        side: Side | None
+        signed: Decimal | None
+        debit: Decimal | None
+        credit: Decimal | None
+        if d is None or c is None:
+            amount = side = signed = debit = credit = None
         else:
-            amount, side = abs(signed), Side.DEBIT if signed >= 0 else Side.CREDIT
-        debit, credit = (signed, _ZERO) if signed >= 0 else (_ZERO, -signed)
+            if (d < 0 or c < 0) and self._vf:
+                self._findings.add("XAF7001", "negative debit/credit amount", line=rec.line)
+            if self._policy == "abs":
+                d, c = d.copy_abs(), c.copy_abs()
+            if d and c and self._vf:
+                self._findings.add(
+                    "XAF7013", "line has both a debit and a credit amount", line=rec.line
+                )
+            signed = exact_sub(d, c)
+            if d == c:
+                signed = signed.copy_abs()  # no -0.00
+            if c and not d:
+                amount, side = c, Side.CREDIT
+            elif d and not c:
+                amount, side = d, Side.DEBIT
+            else:
+                amount, side = signed.copy_abs(), Side.DEBIT if signed >= 0 else Side.CREDIT
+            debit, credit = (signed, _ZERO) if signed >= 0 else (_ZERO, signed.copy_negate())
         currency = _s(f["valuta"])
         rate = self._num(rec, spec["koers"])
         foreign = (

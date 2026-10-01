@@ -42,8 +42,9 @@ class FieldSpec:
         order: Position among the parent's children in the schema sequence.
         min_occurs: Minimum occurrences within one parent.
         max_occurs: Maximum occurrences (``None`` = unbounded).
-        kind: ``complex``, ``string``, ``date``, ``datetime``, ``time``, ``decimal``, ``integer``
-            or ``boolean``.
+        kind: ``complex``, ``string``, ``date``, ``datetime``, ``time``, ``decimal``,
+            ``double`` (``xs:double``/``xs:float``: exponents, ``INF`` and ``NaN`` allowed),
+            ``integer`` or ``boolean``.
         choice: ``"<group>.<branch>"`` when the element belongs to an ``xs:choice`` (members of a
             nested sequence share a branch), else ``None``.
     """

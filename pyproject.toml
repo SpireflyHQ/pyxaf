@@ -6,7 +6,7 @@ readme = "README.md"
 authors = [{ name = "Ben van der Burgh", email = "ben@spirefly.com" }]
 maintainers = [{ name = "Ben van der Burgh", email = "ben@spirefly.com" }]
 license = "MIT"
-license-files = ["LICENSE"]
+license-files = ["LICENSE", "LICENSES/*"]
 requires-python = ">=3.11"
 dependencies = []
 keywords = [
@@ -151,7 +151,10 @@ source = ["pyxaf"]
 [tool.coverage.report]
 show_missing = true
 skip_covered = true
-exclude_also = ["if TYPE_CHECKING:", "@overload", "raise NotImplementedError", "\\.\\.\\."]
+# coverage >= 7.10 (required by pytest-cov >= 7) already excludes `...`-only stub lines and
+# `if TYPE_CHECKING:` blocks. Never add a bare `\\.\\.\\.` pattern: it matches `tuple[X, ...]` in a
+# signature and silently excludes the whole function.
+exclude_also = ["@overload", "raise NotImplementedError"]
 
 [tool.typos.files]
 # Dutch domain vocabulary is intentional (XAF element names, ADF record labels, official titles).

@@ -8,6 +8,62 @@ change in minor releases. Finding codes are stable: a code is never renumbered o
 
 ## [Unreleased]
 
+### Added
+
+- `ValidationReport.severity_counts`: findings per severity, including those suppressed by limits
+  (also in `to_dict()` / the JSON report).
+- Checks that the files of a multi-file set belong together: another administration (`XAF6011`),
+  another version (`XAF3008`), and inconsistent "Vervolgbestand x van y" numbering (`XAF3009`).
+- `XAF4008`: references that could not be checked because an XAF file has no master data section
+  for them (for example no `customersSuppliers`), instead of silently skipping them.
+- The structure check (L4) now reports elements in a foreign namespace or with an undeclared
+  prefix (`XAF3011`).
+- `pyxaf.values.parse_double()` for `xs:double` values such as `2.1E1`.
+- The Apache-2.0 licence of the AnalyticsLibrary path table, from which the XAF 3.0/3.1
+  catalogues are derived, now ships with the package.
+
+### Fixed
+
+- **The verdict no longer depends on the finding limits**: `ok`, `max_severity` and the exit code
+  of `pyxaf validate` are based on all findings, so `max_findings`/`--max-findings` can no longer
+  turn an invalid file into a valid one.
+- **Amounts are exact in any decimal context**: sign changes, sums and totals, ADF amounts, decimal
+  facets and Arrow/polars/pandas/Parquet exports no longer depend on (or round to) the caller's
+  `decimal` context. Values with more digits than the precision were rounded away before the facet
+  check; `on_inexact="round"` now always rounds half to even.
+- **Structure check**: duplicated containers (`XAF3012`), leaf and complex children out of
+  order (`XAF3013`) and an incomplete `xs:choice` branch (`XAF3010`) were not reported.
+- Reading the journals of a caller's seekable stream (for example `io.BytesIO`) while
+  transactions were pending corrupted the paused parser on larger files.
+- The decompression-bomb guard now also applies to gzip input from a file object; it only
+  applied to paths and bytes.
+- An invalid ADF debit or credit amount became `0`; the line's amounts are now `None`, as in the
+  XML formats.
+- Iterating `af.raw.transactions()` first suppressed the value and data-quality findings of a
+  later `af.transactions()`.
+- `validate()` raised on a very long integer (`ValueError`) and on a size limit reached while
+  detecting the version; both are findings now.
+- XSD validation ignored an `encoding=` override, transcoding and the `latin1-as-cp1252` repair;
+  an override also did not apply to UTF-16 files without a byte-order mark.
+- Validation memory: transaction numbers checked for uniqueness move to a temporary SQLite file
+  beyond 500,000, and streaming XSD validation releases validated elements.
+- A batch size of zero or less is rejected (`ValueError`) instead of dropping rows or never
+  finishing.
+- `xs:double` values with an exponent (CLAIR2 `vatPercentage`) were reported as invalid, and dates
+  with an out-of-range time zone (`+99:99`) were accepted.
+- A small RGS workbook could allocate millions of empty rows: row numbers are checked against
+  Excel's grid (1–1,048,576) and must not decrease, and gaps are expanded lazily.
+- gzip and zip inputs given as a path no longer leave the file open.
+- `CITATION.cff` version, the `--output json` option in the issue template, and the documented
+  exit code of command-line usage errors (3).
+
+### Changed
+
+- Releases are published to PyPI/TestPyPI only after the full CI has passed on the tagged commit.
+- Coverage no longer excludes every function whose signature contains `...`.
+- `RawRecord` and the documentation no longer call the raw layer lossless: it keeps the data
+  exactly, not the XML markup.
+
 ## [0.1.2] - 2026-10-01
 
 ### Fixed

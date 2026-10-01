@@ -20,6 +20,7 @@ from .errors import PyxafError
 from .findings import CODES, Severity
 from .reader import open as _open
 from .validate import validate as _validate
+from .values import exact_add
 
 app: typer.Typer = typer.Typer(
     name="pyxaf",
@@ -143,8 +144,10 @@ def info(
                 n_tx += 1
                 for ln in tx.lines:
                     n_lines += 1
-                    debit += ln.debit or 0
-                    credit += ln.credit or 0
+                    if ln.debit is not None:
+                        debit = exact_add(debit, ln.debit)
+                    if ln.credit is not None:
+                        credit = exact_add(credit, ln.credit)
             ob = af.opening_balance()
             h = af.header
             data: dict[str, Any] = {

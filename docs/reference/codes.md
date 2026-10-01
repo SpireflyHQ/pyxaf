@@ -13,7 +13,7 @@ catalogues), and `severity_overrides=` changes or silences any code.
 Codes of the official XAF 4.0 consistency rules end in the rule number: rule [0009] is
 `XAF5009`. The same list is available offline with `pyxaf codes` or `pyxaf.CODES`.
 
-84 codes: 42 ERROR, 32 WARNING, 10 INFO.
+88 codes: 43 ERROR, 35 WARNING, 10 INFO.
 
 ## 1xxx — Input container and character encoding
 
@@ -57,6 +57,8 @@ Layer: L3, L4, L4x.
 | <span id="xaf3005"></span>`XAF3005` | WARNING | Version signals contradict each other |  |
 | <span id="xaf3006"></span>`XAF3006` | INFO | Continuation file of a split auditfile |  |
 | <span id="xaf3007"></span>`XAF3007` | WARNING | Version could not be determined with certainty |  |
+| <span id="xaf3008"></span>`XAF3008` | WARNING | Files of a multi-file set have different versions |  |
+| <span id="xaf3009"></span>`XAF3009` | WARNING | Continuation files are numbered inconsistently |  |
 | <span id="xaf3010"></span>`XAF3010` | ERROR | Required element missing |  |
 | <span id="xaf3011"></span>`XAF3011` | ERROR | Element not defined for this version |  |
 | <span id="xaf3012"></span>`XAF3012` | ERROR | Element occurs more often than allowed |  |
@@ -86,6 +88,7 @@ Layer: L5.
 | <span id="xaf4005"></span>`XAF4005` | WARNING | Journal offset account not defined |  |
 | <span id="xaf4006"></span>`XAF4006` | WARNING | VAT code account not defined |  |
 | <span id="xaf4007"></span>`XAF4007` | ERROR | Opening balance account not defined |  |
+| <span id="xaf4008"></span>`XAF4008` | WARNING | References not checked: the master data section is missing |  |
 
 ## 5xxx — Control totals and balance
 
@@ -120,6 +123,7 @@ Layer: L7.
 | <span id="xaf6008"></span>`XAF6008` | ERROR | Duplicate VAT code |  |
 | <span id="xaf6009"></span>`XAF6009` | ERROR | Duplicate period number |  |
 | <span id="xaf6010"></span>`XAF6010` | WARNING | Conflicting master data across files |  |
+| <span id="xaf6011"></span>`XAF6011` | ERROR | Files of a multi-file set belong to different administrations |  |
 
 ## 7xxx — Data quality and conventions
 

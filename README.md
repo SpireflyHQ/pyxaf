@@ -247,7 +247,7 @@ with pyxaf.open("2024.xaf") as af:
     af.format  # FormatInfo: version, namespace status, encoding, reasons
     af.accounts["1000"].rgs  # RgsRef(code='BLimKas', source='RGScode', ...)
     for journal_id, record in af.raw.transactions():
-        ...  # lossless raw records, about twice as fast
+        ...  # raw records (exact text, no normalization), about twice as fast
 
 report = pyxaf.validate("2024.xaf", xsd=True)  # also check the official XSD (pyxaf[xsd])
 ```

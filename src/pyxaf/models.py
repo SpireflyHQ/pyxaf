@@ -4,7 +4,7 @@ All classes are slotted, keyword-only dataclasses with English names. Master-dat
 frozen; the per-line classes (:class:`Line`, :class:`Transaction`, :class:`VatLine`,
 :class:`ForeignAmount`) are not, because frozen construction costs ~3 µs per object on the hot
 path — treat them as read-only all the same. Every object keeps
-the :class:`~pyxaf.raw.RawRecord` it was built from in ``raw`` (lossless access to the exact text),
+the :class:`~pyxaf.raw.RawRecord` it was built from in ``raw`` (the exact text as written),
 and ``Line.extra``/``Transaction.extra`` expose fields of that record without a normalized
 attribute. The
 "Normalized field mapping" section of the version guide documents which element of each version
@@ -25,6 +25,7 @@ from decimal import Decimal
 from typing import Literal
 
 from .raw import RawRecord
+from .values import exact_add, exact_sum
 
 __all__ = [
     "AccountKind",
@@ -477,12 +478,12 @@ class Transaction:
     @property
     def total_debit(self) -> Decimal:
         """Sum of the lines' ``debit`` values (invalid amounts count as zero)."""
-        return sum((ln.debit for ln in self.lines if ln.debit is not None), Decimal(0))
+        return exact_sum(ln.debit for ln in self.lines if ln.debit is not None)
 
     @property
     def total_credit(self) -> Decimal:
         """Sum of the lines' ``credit`` values (invalid amounts count as zero)."""
-        return sum((ln.credit for ln in self.lines if ln.credit is not None), Decimal(0))
+        return exact_sum(ln.credit for ln in self.lines if ln.credit is not None)
 
     @property
     def balanced(self) -> bool:
@@ -530,12 +531,12 @@ class OpeningBalance:
     @property
     def total_debit(self) -> Decimal:
         """Sum of debit values."""
-        return sum((ln.debit for ln in self.lines if ln.debit is not None), Decimal(0))
+        return exact_sum(ln.debit for ln in self.lines if ln.debit is not None)
 
     @property
     def total_credit(self) -> Decimal:
         """Sum of credit values."""
-        return sum((ln.credit for ln in self.lines if ln.credit is not None), Decimal(0))
+        return exact_sum(ln.credit for ln in self.lines if ln.credit is not None)
 
     @property
     def balanced(self) -> bool:
@@ -547,7 +548,7 @@ class OpeningBalance:
         out: dict[str, Decimal] = {}
         for ln in self.lines:
             if ln.account_id is not None and ln.signed_amount is not None:
-                out[ln.account_id] = out.get(ln.account_id, Decimal(0)) + ln.signed_amount
+                out[ln.account_id] = exact_add(out.get(ln.account_id, Decimal(0)), ln.signed_amount)
         return out
 
 

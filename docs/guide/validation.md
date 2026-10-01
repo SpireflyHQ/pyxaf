@@ -14,8 +14,10 @@ line 223 ERROR XAF5010 transaction '1' in journal 'MEM' does not balance: debit 
 ```
 
 `pyxaf.validate()` checks an auditfile, or a [multi-file set](reading.md#multi-file-sets), in
-**one streaming pass**, so it works on files of any size in constant memory. It needs no
-dependencies; only the optional XSD layer uses lxml. The official validation service of the
+**one streaming pass**, so it works on files of several GB. Memory does not grow with the number
+of lines; it grows with the master data (accounts, relations, …), which is held in memory, and
+with the transaction numbers checked for uniqueness, which move to a temporary file on disk beyond
+500,000 (see [Memory](#memory)). It needs no dependencies; only the optional XSD layer uses lxml. The official validation service of the
 Belastingdienst (VTS) is available to subscribers only and accepts files up to 5 MB; pyxaf runs
 locally on files of several GB and never sends data anywhere.
 
@@ -25,10 +27,10 @@ locally on files of several GB and never sends data anywhere.
 |---|---|---|
 | L1 encoding | container (gzip/zip), BOM, XML declaration, allowed encodings, windows-1252 bytes in ISO-8859-1, applied repairs | `XAF1xxx` |
 | L2 xml | well-formedness, refused DOCTYPE/ENTITY, safety limits | `XAF2xxx` |
-| L3 version | version and namespace detection | `XAF3001`–`XAF3007` |
-| L4 structure | the version's field catalogue: required and unknown elements, cardinality, order, lengths, code lists, patterns, dates, decimals, integers, ranges; XSD-like, without dependencies | `XAF3010`–`XAF3021`, `XAF3030`, `XAF3050` (ADF) |
+| L3 version | version and namespace detection; the files of a multi-file set belong together | `XAF3001`–`XAF3009` |
+| L4 structure | the version's field catalogue: required and unknown elements, elements in a foreign namespace, cardinality, order, complete `xs:choice` branches, lengths, code lists, patterns, dates, decimals, doubles, integers, ranges; XSD-like, without dependencies | `XAF3010`–`XAF3021`, `XAF3030`, `XAF3050` (ADF) |
 | L4x xsd | validation against the bundled official XSD with lxml (optional) | `XAF3040` |
-| L5 references | accounts, customers/suppliers, VAT codes and periods referenced by lines and master data exist | `XAF4xxx` |
+| L5 references | accounts, customers/suppliers, VAT codes and periods referenced by lines and master data exist; when an XAF file has no such section at all, one `XAF4008` warning says how many references could not be checked | `XAF4xxx` |
 | L6 totals | control totals and balance, incl. official rules [0004]–[0010]; line counts | `XAF5xxx` |
 | L7 uniqueness | IDs and numbers, incl. official rules [0001]–[0003] | `XAF6xxx` |
 | L8 data quality | dates outside the fiscal year or period, negative amounts, opening-balance conventions, unusual codes; RGS references | `XAF7xxx`, `XAF8xxx` |
@@ -75,11 +77,12 @@ summed exactly as written (amount per written side), as the rules are worded, in
 
 | Member | Meaning |
 |---|---|
-| `ok` | `True` when there is no ERROR finding |
+| `ok` | `True` when there is no ERROR finding, **including** findings suppressed by limits |
 | `findings` | all kept findings, most severe first, then in file order |
-| `errors`, `warnings` | the ERROR and WARNING findings |
-| `max_severity` | the highest severity, or `None` without findings |
+| `errors`, `warnings` | the kept ERROR and WARNING findings |
+| `max_severity` | the highest severity of all findings (kept or suppressed), or `None` without findings |
 | `counts` | occurrences per code, **including** findings suppressed by limits |
+| `severity_counts` | occurrences per severity, **including** findings suppressed by limits |
 | `suppressed` | number of findings dropped because of limits |
 | `checked` | the layers that ran |
 | `stats` | counts gathered during the pass: `transactions`, `lines`, `accounts`, `relations`, `vat_codes`, `periods`, `journals`, `opening_balance_lines` |
@@ -120,6 +123,7 @@ print(report.stats["lines"])  # 36
   "stats": {"transactions": 12, "lines": 36, "accounts": 11, "relations": 3, "vat_codes": 2,
             "periods": 12, "journals": 3, "opening_balance_lines": 3},
   "counts": {"XAF5010": 1, "XAF5009": 1},
+  "severity_counts": {"ERROR": 2},
   "suppressed": 0,
   "findings": [
     {"code": "XAF5009", "severity": "ERROR",
@@ -178,21 +182,39 @@ report = pyxaf.validate(
 
 `max_findings_per_code` (default 100) and `max_findings` (default 10,000) keep reports of files
 with millions of problems small. Suppressed findings are still counted: `report.counts` has the
-real number per code and `report.suppressed` the number dropped.
+real number per code, `report.severity_counts` the real number per severity and
+`report.suppressed` the number dropped. The verdict (`ok`, `max_severity` and the exit code of
+`pyxaf validate`) is based on all findings, so a limit can never turn an invalid file into a
+valid one. Severity overrides apply first: a silenced code is not counted at all.
 
 ### XSD validation
 
 With `pyxaf[xsd]` installed, `xsd=True` adds layer L4x: validation against the bundled official
 XSD of CLAIR2, 3.2, 3.2.1 or 4.0 with lxml, using hardened parser options (see
-[Security](../security.md#lxml-hardening)). Inputs up to 64 MiB are validated as a whole and
-every schema error is reported; larger inputs are validated streaming, which stops at the first
-schema error. No XSD exists for ADF, 3.0 and 3.1 (an INFO `XAF3040` says so). A file whose
+[Security](../security.md#lxml-hardening)). The XSD sees the same text as pyxaf itself: an
+`encoding=` override, transcoding and opt-in repairs apply to both. Inputs up to 64 MiB are
+validated as a whole and every schema error is reported; larger inputs are validated streaming,
+which stops at the first schema error. No XSD exists for ADF, 3.0 and 3.1 (an INFO `XAF3040` says so). A file whose
 namespace is not the XSD's target namespace, such as the 4.0 Toelichting variant or a bogus
 namespace, cannot validate and gets one ERROR `XAF3040` instead of hundreds of follow-up errors.
 
 The dependency-free L4 layer covers the same structural rules (required elements, cardinality,
-order, lengths, enumerations, patterns, types) from catalogues generated from the same XSDs, so
-the XSD layer is mostly a second opinion with the official tool chain.
+order, choices, namespaces, lengths, enumerations, patterns, types) from catalogues generated from
+the same XSDs, so the XSD layer is mostly a second opinion with the official tool chain. Two
+differences in the XSDs themselves: the CLAIR2 XSD declares keys, so lxml keeps every transaction
+and line key in memory while validating; and the 21 key/keyref constraints of the 3.2 XSD never
+take effect (their paths lack the namespace prefix), so duplicate or undefined IDs in a 3.2 file
+pass the XSD. pyxaf's own L5 and L7 layers check those.
+
+### Memory
+
+The reader holds the master data in memory and streams transactions, so memory does not depend on
+the number of lines. Validation adds a little state per transaction: transaction numbers (and
+CLAIR2 record IDs) must be unique across the whole file, so they are remembered. Up to 500,000 of
+them are kept in memory (a few tens of MB); beyond that they move to a SQLite database in a
+temporary file, so even files with tens of millions of transactions validate in bounded memory.
+Retained findings are bounded by `max_findings`. Streaming XSD validation releases each element
+once it has been validated, except for CLAIR2 (see above).
 
 ### XAF 3.0 and 3.1
 

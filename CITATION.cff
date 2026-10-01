@@ -18,7 +18,8 @@ authors:
 repository-code: "https://github.com/SpireflyHQ/pyxaf"
 url: "https://github.com/SpireflyHQ/pyxaf"
 license: MIT
-version: "0.1.0"
+version: "0.1.2"
+date-released: "2026-10-01"
 keywords:
   - auditfile
   - XAF

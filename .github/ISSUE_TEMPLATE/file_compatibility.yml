@@ -58,7 +58,7 @@ body:
       label: Finding codes reported
       description: |
         Finding codes and counts, e.g. from
-        `print(dict(pyxaf.validate(path).counts))` or `pyxaf validate FILE --format json`.
+        `print(dict(pyxaf.validate(path).counts))` or `pyxaf validate FILE --output json`.
         Codes and counts alone are fine; check messages for real values before pasting them.
       render: text
   - type: textarea

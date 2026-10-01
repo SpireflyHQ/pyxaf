@@ -45,7 +45,7 @@ from .formats import Family, FormatInfo, NamespaceStatus, Version
 from .models import JournalKind, Line, Side, Transaction
 from .raw import RawRecord
 from .reader import AuditFile
-from .values import parse_adf_amount, parse_amount, parse_date, parse_int
+from .values import exact_add, is_double, parse_adf_amount, parse_amount, parse_date, parse_int
 
 if TYPE_CHECKING:
     from .rgs import RgsSchema
@@ -88,6 +88,9 @@ class ValidationReport:
         checked: Validation layers that ran (see module documentation).
         stats: Counts gathered during the pass (lines, transactions, accounts…).
         rules: Rule set used.
+        severity_counts: Occurrences per severity, including findings suppressed by limits.
+            The verdict (:attr:`ok`, :attr:`max_severity`) is based on these, so limiting the
+            number of findings never turns an invalid file into a valid one.
     """
 
     format: FormatInfo
@@ -97,6 +100,7 @@ class ValidationReport:
     checked: tuple[str, ...]
     stats: Mapping[str, int]
     rules: RuleSet = "spec"
+    severity_counts: Mapping[Severity, int] = field(default_factory=dict)
 
     @property
     def errors(self) -> tuple[Finding, ...]:
@@ -110,13 +114,13 @@ class ValidationReport:
 
     @property
     def ok(self) -> bool:
-        """``True`` when there are no ERROR findings."""
-        return not self.errors
+        """``True`` when there are no ERROR findings (including suppressed ones)."""
+        return not self.severity_counts.get(Severity.ERROR) and not self.errors
 
     @property
     def max_severity(self) -> Severity | None:
-        """Highest severity among the findings."""
-        return max((f.severity for f in self.findings), default=None)
+        """Highest severity among all findings (including suppressed ones)."""
+        return max((*self.severity_counts, *(f.severity for f in self.findings)), default=None)
 
     def to_dict(self) -> dict[str, Any]:
         """JSON-serialisable representation (``schema_version`` 1)."""
@@ -138,6 +142,9 @@ class ValidationReport:
             "checked": list(self.checked),
             "stats": dict(self.stats),
             "counts": dict(self.counts),
+            "severity_counts": {
+                sev.name: n for sev, n in sorted(self.severity_counts.items(), reverse=True)
+            },
             "suppressed": self.suppressed,
             "findings": [f.to_dict() for f in self.findings],
         }
@@ -147,10 +154,15 @@ class ValidationReport:
         return json.dumps(self.to_dict(), ensure_ascii=False, **kwargs)
 
     def __str__(self) -> str:
+        n = self.severity_counts
+        errors = max(n.get(Severity.ERROR, 0), len(self.errors))
+        warnings = max(n.get(Severity.WARNING, 0), len(self.warnings))
+        infos = max(
+            n.get(Severity.INFO, 0), len(self.findings) - len(self.errors) - len(self.warnings)
+        )
         head = (
-            f"{self.format.version or 'unknown format'} — {len(self.errors)} error(s), "
-            f"{len(self.warnings)} "
-            f"warning(s), {len(self.findings) - len(self.errors) - len(self.warnings)} info"
+            f"{self.format.version or 'unknown format'} — {errors} error(s), "
+            f"{warnings} warning(s), {infos} info"
         )
         lines = [head, *(str(f) for f in self.findings)]
         if self.suppressed:
@@ -160,17 +172,31 @@ class ValidationReport:
 
 # ----------------------------------------------------------------------------- L4 structure
 class _Structure:
-    """Catalogue-driven structural checks fed by raw engine events."""
+    """Catalogue-driven structural checks fed by raw engine events.
+
+    The engine runs in strict mode for validation, so every element arrives with the names of
+    its children in document order (``RawRecord.sequence``, as runs of equal names). Order and
+    cardinality are checked on that one sequence — leaf and complex children together, as an
+    ``xs:sequence`` requires — and a selected ``xs:choice`` branch must be complete.
+    """
 
     def __init__(self, catalogue: Catalogue, findings: FindingCollector) -> None:
         self.cat = catalogue
         self.f = findings
         self.derived = catalogue.derived
         self.index: dict[str, dict[str, FieldSpec]] = {}
+        # per parent: plain children, and the members of each xs:choice
+        self.plain: dict[str, list[FieldSpec]] = {}
+        self.groups: dict[str, list[list[FieldSpec]]] = {}
         for parent, specs in catalogue.children.items():
             self.index[parent] = {s.name: s for s in specs}
+            self.plain[parent] = [s for s in specs if s.choice is None]
+            groups: dict[str, list[FieldSpec]] = defaultdict(list)
+            for s in specs:
+                if s.choice is not None:
+                    groups[s.choice.partition(".")[0]].append(s)
+            self.groups[parent] = list(groups.values())
         self.path: list[str] = []
-        self.seen: dict[int, list[str]] = defaultdict(list)
         self.value_cache: dict[tuple[str, str], tuple[str, str] | None] = {}
 
     def _unknown_sev(self) -> Severity | None:
@@ -183,10 +209,6 @@ class _Structure:
             del self.path[depth - 1 :]
             parent = "/" + "/".join(self.path) if self.path else ""
             self.path.append(local)
-            seen = self.seen[depth - 1]
-            if not seen or seen[-1] != local:  # collapse repeats: memory stays flat
-                seen.append(local)
-            self.seen[depth] = []
             if depth == 1:
                 if local != "auditfile":
                     self.f.add(
@@ -206,9 +228,6 @@ class _Structure:
             depth = len(ev[2])
             del self.path[depth:]
             parent = "/" + "/".join(self.path)
-            seen = self.seen[depth]
-            if not seen or seen[-1] != rec.tag:
-                seen.append(rec.tag)
             spec = self.index.get(parent, {}).get(rec.tag)
             if spec is None:
                 self.f.add(
@@ -219,36 +238,26 @@ class _Structure:
                     severity=self._unknown_sev(),
                 )
                 return
-            self.check(rec, spec.path, ())
+            self.check(rec, spec.path)
         elif kind == _xml.END:
             rec = ev[1]
             depth = ev[2]
             path = "/" + "/".join(self.path[:depth])
             if self.path[:depth] and self.path[depth - 1] != rec.tag:  # pragma: no cover
                 return
-            self.check(rec, path, self.seen.get(depth, ()), container=True)
-            self.seen.pop(depth, None)
+            self.check(rec, path, container=True)
 
-    def check(
-        self,
-        rec: RawRecord,
-        path: str,
-        seen: Sequence[str],
-        *,
-        container: bool = False,
-    ) -> None:
+    def check(self, rec: RawRecord, path: str, *, container: bool = False) -> None:
         specs = self.index.get(path)
         if specs is None:
             return
         line = rec.line
         add = self.f.add
-        present: Counter[str] = Counter()
-        last_order = -1
-        out_of_order = False
+        # leaf values (and, for records, unknown leaves; containers report those at START)
         for name, value in rec.fields.items():
             spec = specs.get(name)
             if spec is None:
-                if not container:  # containers report unknown leaves via START events
+                if not container:
                     add(
                         "XAF3011",
                         f"<{name}> is not defined in {path} for {self.cat.version}",
@@ -257,15 +266,10 @@ class _Structure:
                         severity=self._unknown_sev(),
                     )
                 continue
-            present[name] += 1
-            if spec.order < last_order:
-                out_of_order = True
-            last_order = spec.order
             if spec.kind != "complex":
                 self.value(spec, value, line)
             elif any(c.min_occurs for c in self.cat.children_of(spec.path)):
                 add("XAF3010", f"<{name}> is empty", line=line, path=spec.path)
-        last_order = -1
         for name, items in rec.children.items():
             spec = specs.get(name)
             if spec is None:
@@ -279,11 +283,9 @@ class _Structure:
                     )
                 continue
             if items[0].text is not None:  # repeated leaf
-                present[name] = len(items)
                 for it in items[1:]:
                     self.value(spec, it.text or "", it.line)
                 continue
-            present[name] += len(items)
             if container:
                 continue  # complex children of containers were checked at their own END event
             if spec.kind != "complex":
@@ -297,70 +299,68 @@ class _Structure:
                     path=spec.path,
                 )
                 continue
-            if spec.order < last_order:
+            for child in items:
+                self.check(child, spec.path)
+        # order and occurrences, from the complete child sequence
+        present: Counter[str] = Counter()
+        last_order = -1
+        out_of_order = False
+        for name, n in rec.sequence or ():
+            spec = specs.get(name)
+            if spec is None:
+                continue
+            present[name] += n
+            if spec.order < last_order:  # also catches A B A: a name again after another one
                 out_of_order = True
             last_order = spec.order
-            for child in items:
-                self.check(child, spec.path, ())
-        if container:
-            order = -1
-            for name in seen:
-                spec = specs.get(name)
-                if spec is None:
-                    continue
-                if name not in rec.fields and name not in rec.children:
-                    present[name] += 1
-                elif name in rec.children and rec.children[name][0].text is None:
-                    pass  # counted above
-                if spec.order < order:
-                    out_of_order = True
-                order = spec.order
         if out_of_order and not self.derived:
             add("XAF3013", f"children of <{rec.tag}> are not in schema order", line=line, path=path)
-        choices: dict[str, set[str]] = defaultdict(set)
-        choice_required: dict[str, bool] = {}
-        for spec in specs.values():
-            n = present.get(spec.name, 0)
-            if spec.choice is not None:
-                group, _, branch = spec.choice.partition(".")
-                choice_required[group] = choice_required.get(group, False) or bool(spec.min_occurs)
-                if n:
-                    choices[group].add(branch)
-                continue
-            if n < spec.min_occurs:
-                add(
-                    "XAF3010",
-                    f"<{rec.tag}> lacks required <{spec.name}>",
-                    line=line,
-                    path=spec.path,
-                    severity=Severity.WARNING if self.derived else None,
-                )
-            elif spec.max_occurs is not None and n > spec.max_occurs:
+        get = present.get
+        for spec in self.plain[path]:
+            n = get(spec.name, 0)
+            if n < spec.min_occurs or (spec.max_occurs is not None and n > spec.max_occurs):
+                self.count(rec, spec, n)
+        if self.groups[path]:
+            self.choices(rec, path, present)
+
+    def choices(self, rec: RawRecord, path: str, present: Counter[str]) -> None:
+        add = self.f.add
+        line = rec.line
+        for members in self.groups[path]:
+            names = ", ".join(f"<{s.name}>" for s in members)
+            chosen = {s.choice for s in members if present.get(s.name)}
+            if len(chosen) > 1:
                 add(
                     "XAF3012",
-                    f"<{spec.name}> occurs {n} times in <{rec.tag}> (at most {spec.max_occurs})",
-                    line=line,
-                    path=spec.path,
-                )
-        for group, required in choice_required.items():
-            branches = choices.get(group, set())
-            names = [
-                s.name for s in specs.values() if s.choice and s.choice.partition(".")[0] == group
-            ]
-            if not branches and required:
-                add(
-                    "XAF3010",
-                    f"<{rec.tag}> needs one of {', '.join(f'<{x}>' for x in names)}",
+                    f"<{rec.tag}> may contain only one of {names}",
                     line=line,
                     path=path,
                 )
-            elif len(branches) > 1:
-                add(
-                    "XAF3012",
-                    f"<{rec.tag}> may contain only one of {', '.join(f'<{x}>' for x in names)}",
-                    line=line,
-                    path=path,
-                )
+            elif not chosen:
+                if any(s.min_occurs for s in members):
+                    add("XAF3010", f"<{rec.tag}> needs one of {names}", line=line, path=path)
+            else:  # the selected branch must be complete
+                branch = chosen.pop()
+                for spec in members:
+                    if spec.choice == branch:
+                        self.count(rec, spec, present.get(spec.name, 0))
+
+    def count(self, rec: RawRecord, spec: FieldSpec, n: int) -> None:
+        if n < spec.min_occurs:
+            self.f.add(
+                "XAF3010",
+                f"<{rec.tag}> lacks required <{spec.name}>",
+                line=rec.line,
+                path=spec.path,
+                severity=Severity.WARNING if self.derived else None,
+            )
+        elif spec.max_occurs is not None and n > spec.max_occurs:
+            self.f.add(
+                "XAF3012",
+                f"<{spec.name}> occurs {n} times in <{rec.tag}> (at most {spec.max_occurs})",
+                line=rec.line,
+                path=spec.path,
+            )
 
     def value(self, spec: FieldSpec, value: str, line: int) -> None:
         key = (spec.path, value)
@@ -405,24 +405,29 @@ def _value_problem(spec: FieldSpec, value: str) -> tuple[str, str] | None:
         if d is None:
             return "XAF3018", f"<{name}> is not a valid decimal number"
         # facets apply to the value: trailing fraction zeros do not count
-        _sign, digits, exp = d.normalize().as_tuple() if d else (0, (0,), 0)
-        exp = exp if isinstance(exp, int) else 0
-        frac = -exp if exp < 0 else 0
-        digits = (*digits, *([0] * exp)) if exp > 0 else digits
+        n_digits, frac = _significant_digits(d)
         if spec.fraction_digits is not None and frac > spec.fraction_digits:
             return "XAF3018", f"<{name}> has more than {spec.fraction_digits} decimals"
-        if spec.total_digits is not None and max(len(digits), frac) > spec.total_digits:
+        if spec.total_digits is not None and max(n_digits, frac) > spec.total_digits:
             return "XAF3018", f"<{name}> has more than {spec.total_digits} digits"
         if spec.min_inclusive is not None and d < spec.min_inclusive:
             return "XAF3021", f"<{name}> must be at least {spec.min_inclusive}"
         if spec.enum is not None and v not in spec.enum:
             return "XAF3015", f"<{name}> must be one of {', '.join(spec.enum)}"
         return None
+    if kind == "double":
+        if not is_double(v):
+            return "XAF3018", f"<{name}> is not a valid number"
+        return None
     if kind == "integer":
         i = parse_int(v)
         if i is None:
             return "XAF3019", f"<{name}> is not a valid integer"
-        if spec.total_digits is not None and len(str(abs(i))) > spec.total_digits:
+        # count digits in the text: str(i) is itself subject to the int-string conversion limit
+        if (
+            spec.total_digits is not None
+            and len(v.lstrip("+-").lstrip("0") or "0") > spec.total_digits
+        ):
             return "XAF3019", f"<{name}> has more than {spec.total_digits} digits"
         if spec.min_inclusive is not None and i < spec.min_inclusive:
             return "XAF3021", f"<{name}> must be at least {spec.min_inclusive}"
@@ -438,7 +443,74 @@ def _value_problem(spec: FieldSpec, value: str) -> tuple[str, str] | None:
     return None
 
 
+def _significant_digits(d: Decimal) -> tuple[int, int]:
+    """``(digits, fraction digits)`` of the value without trailing fraction zeros.
+
+    Works on ``as_tuple()``: ``Decimal.normalize()`` would round to the active context first and
+    hide excess digits from the facet checks.
+    """
+    _sign, digits, exp = d.as_tuple()
+    if not isinstance(exp, int) or not any(digits):
+        return 1, 0
+    n = len(digits)
+    while exp < 0 and digits[n - 1] == 0:
+        n -= 1
+        exp += 1
+    return n + max(exp, 0), max(-exp, 0)
+
+
 # ------------------------------------------------------------------------- L5–L8 semantics
+class _SeenKeys:
+    """Exact set of ``(scope, key)`` pairs with bounded memory.
+
+    Keys live in a Python set until ``max_memory`` of them are stored; then they move to a SQLite
+    database in a temporary file (standard library, imported only then), so validating a file
+    with tens of millions of transaction numbers does not need gigabytes of memory.
+    """
+
+    def __init__(self, max_memory: int = 500_000) -> None:
+        self._mem: dict[object, set[str]] = {}
+        self._n = 0
+        self._max = max_memory
+        self._db: Any = None
+
+    def add(self, scope: object, key: str) -> bool:
+        """Add the pair; return ``False`` if it was already present."""
+        if self._db is None:
+            keys = self._mem.get(scope)
+            if keys is None:
+                keys = self._mem[scope] = set()
+            elif key in keys:
+                return False
+            keys.add(key)
+            self._n += 1
+            if self._n > self._max:
+                self._spill()
+            return True
+        cur = self._db.execute("INSERT OR IGNORE INTO seen VALUES (?, ?)", (repr(scope), key))
+        return bool(cur.rowcount)
+
+    def _spill(self) -> None:
+        import sqlite3  # noqa: PLC0415 - only for very large files
+
+        db = sqlite3.connect("", isolation_level=None)  # "": a private temporary file
+        db.execute("PRAGMA journal_mode = OFF")
+        db.execute("PRAGMA synchronous = OFF")
+        db.execute("CREATE TABLE seen (scope TEXT, key TEXT, PRIMARY KEY (scope, key))")
+        db.execute("BEGIN")
+        db.executemany(
+            "INSERT INTO seen VALUES (?, ?)",
+            ((repr(s), k) for s, keys in self._mem.items() for k in keys),
+        )
+        self._mem = {}
+        self._db = db
+
+    def close(self) -> None:
+        if self._db is not None:
+            self._db.close()
+            self._db = None
+
+
 @dataclass(slots=True)
 class _Totals:
     lines: int = 0
@@ -452,16 +524,47 @@ class _Semantics:
     f: FindingCollector
     rgs: RgsSchema | None = None
     per_file: dict[int, _Totals] = field(default_factory=lambda: defaultdict(_Totals))
-    tx_numbers: dict[tuple[int, str | None], set[str]] = field(default_factory=dict)
-    record_ids: set[str] = field(default_factory=set)
+    tx_numbers: _SeenKeys = field(default_factory=_SeenKeys)
+    record_ids: _SeenKeys = field(default_factory=_SeenKeys)
     tx_count: int = 0
     line_count: int = 0
     ob_tx_lines: int = 0
     eff_outside: int = 0
+    sections: set[str] = field(default_factory=set)  # container elements seen (master sections)
+    checkable: dict[str, bool] = field(default_factory=dict)
+    unchecked: Counter[str] = field(default_factory=Counter)
+
+    def _undefined(self, section: str, ids: Mapping[str, Any], key: str) -> bool:
+        """Whether ``key`` refers to a record that ``section`` does not define.
+
+        A section that is missing from an XAF file cannot be checked against (its references
+        are counted and reported once as ``XAF4008``); CLAIR2's XSD requires the referenced
+        records to exist even then, and a present but empty section defines nothing.
+        """
+        if key in ids:
+            return False
+        if self.checkable.get(section, True):
+            return True
+        if self.af.format.family is Family.XAF:
+            self.unchecked[section] += 1
+        return False
 
     def master(self) -> None:
         af = self.af
         f = self.f
+        family = af.format.family
+        for section, ids in (
+            ("generalLedger", af.accounts),
+            ("customersSuppliers", af.relations),
+            ("vatCodes", af.vat_codes),
+            ("periods", af.periods),
+        ):
+            if family is Family.XAF:
+                self.checkable[section] = bool(ids) or section in self.sections
+            elif family is Family.CLAIR2 and section in ("generalLedger", "customersSuppliers"):
+                self.checkable[section] = True  # XSD keyrefs: must exist even if absent
+            else:  # ADF collects master data from the lines; CLAIR2 has no such section
+                self.checkable[section] = bool(ids)
         accounts = af.accounts
         # [0003] RGS codes unique; RGS quality
         rgs_seen: dict[str, str] = {}
@@ -503,7 +606,7 @@ class _Semantics:
         for vat in af.vat_codes.values():
             line = vat.raw.line if vat.raw is not None else None
             for acc_id in (vat.payable_account_id, vat.receivable_account_id):
-                if acc_id and accounts and acc_id not in accounts:
+                if acc_id and self._undefined("generalLedger", accounts, acc_id):
                     f.add(
                         "XAF4006",
                         f"VAT code {vat.id!r} refers to undefined account {acc_id!r}",
@@ -545,10 +648,10 @@ class _Semantics:
             line = ln.raw.line if ln.raw is not None else None
             if ln.amount is not None:
                 if ln.side is Side.DEBIT:
-                    d += ln.amount
+                    d = exact_add(d, ln.amount)
                 elif ln.side is Side.CREDIT:
-                    c += ln.amount
-            if ln.account_id and af.accounts and ln.account_id not in af.accounts:
+                    c = exact_add(c, ln.amount)
+            if ln.account_id and self._undefined("generalLedger", af.accounts, ln.account_id):
                 f.add(
                     "XAF4007",
                     f"opening balance line refers to undefined account {ln.account_id!r}",
@@ -606,9 +709,8 @@ class _Semantics:
         clair2 = af.format.family is Family.CLAIR2
         # uniqueness of transaction numbers per journal (CLAIR2: per file, an XSD key)
         if tx.number is not None:
-            key = (tx.file, None if clair2 else tx.journal_id)
-            nrs = self.tx_numbers.setdefault(key, set())
-            if tx.number in nrs:
+            scope = (tx.file, None if clair2 else tx.journal_id)
+            if not self.tx_numbers.add(scope, tx.number):
                 f.add(
                     "XAF6004",
                     f"transaction number {tx.number!r} occurs more than once in "
@@ -616,8 +718,6 @@ class _Semantics:
                     line=line,
                     value=tx.number,
                 )
-            else:
-                nrs.add(tx.number)
         if not tx.lines:
             f.add("XAF7011", f"transaction {tx.number!r} has no lines", line=line)
         d = c = _ZERO
@@ -635,16 +735,20 @@ class _Semantics:
             if ln.amount is not None:
                 if af.format.family is Family.XAF:
                     if ln.side is Side.DEBIT:
-                        d += ln.amount
+                        d = exact_add(d, ln.amount)
                     elif ln.side is Side.CREDIT:
-                        c += ln.amount
+                        c = exact_add(c, ln.amount)
                 else:  # CLAIR2 / ADF: the written debit and credit columns
                     wd, wc = _written_dc(ln)
-                    d += wd
-                    c += wc
+                    d = exact_add(d, wd)
+                    c = exact_add(c, wc)
             if ln.number is not None:
-                scope = self.record_ids if clair2 else line_nrs
-                if ln.number in scope:
+                if clair2:  # recordID is a file-wide key in CLAIR2
+                    duplicate = not self.record_ids.add(tx.file, ln.number)
+                else:
+                    duplicate = ln.number in line_nrs
+                    line_nrs.add(ln.number)
+                if duplicate:
                     where = "the file" if clair2 else f"transaction {tx.number!r}"
                     f.add(
                         "XAF6005",
@@ -652,10 +756,9 @@ class _Semantics:
                         line=ln_line,
                         value=ln.number,
                     )
-                scope.add(ln.number)
             self._line_refs(ln, ln_line, accounts, relations, vat_codes)
-        totals.debit += d
-        totals.credit += c
+        totals.debit = exact_add(totals.debit, d)
+        totals.credit = exact_add(totals.credit, c)
         if d != c:
             f.add(
                 "XAF5010",
@@ -666,12 +769,13 @@ class _Semantics:
         # periods and dates
         if (
             tx.period_key is not None
-            and periods
             and tx.period_key not in periods
             and not (tx.period_number == 0 and af.version is not Version.XAF40)
         ):  # period 0 is the 3.x/CLAIR2/ADF opening-balance convention, not a defined period
             alt = str(tx.period_number) if tx.period_number is not None else None
-            if alt is None or alt not in periods:
+            if (alt is None or alt not in periods) and self._undefined(
+                "periods", periods, tx.period_key
+            ):
                 f.add(
                     "XAF4004",
                     f"period {tx.period_key!r} is not defined",
@@ -729,14 +833,16 @@ class _Semantics:
         vat_codes: Mapping[str, Any],
     ) -> None:
         f = self.f
-        if ln.account_id is not None and accounts and ln.account_id not in accounts:
+        if ln.account_id is not None and self._undefined("generalLedger", accounts, ln.account_id):
             f.add(
                 "XAF4001",
                 f"account {ln.account_id!r} is not defined",
                 line=line,
                 value=ln.account_id,
             )
-        if ln.relation_id is not None and relations and ln.relation_id not in relations:
+        if ln.relation_id is not None and self._undefined(
+            "customersSuppliers", relations, ln.relation_id
+        ):
             f.add(
                 "XAF4002",
                 f"customer/supplier {ln.relation_id!r} is not defined",
@@ -747,8 +853,7 @@ class _Semantics:
             if (
                 v.code is not None
                 and self.af.format.family is Family.XAF
-                and vat_codes
-                and v.code not in vat_codes
+                and self._undefined("vatCodes", vat_codes, v.code)
             ):
                 f.add("XAF4003", f"VAT code {v.code!r} is not defined", line=line, value=v.code)
 
@@ -841,12 +946,27 @@ class _Semantics:
             )
         # journals
         for jr in af.journals.values():
-            if jr.offset_account_id and af.accounts and jr.offset_account_id not in af.accounts:
+            if jr.offset_account_id and self._undefined(
+                "generalLedger", af.accounts, jr.offset_account_id
+            ):
                 f.add(
                     "XAF4005",
                     f"journal {jr.id!r} offset account {jr.offset_account_id!r} is not defined",
                     value=jr.offset_account_id,
                 )
+        what = {
+            "generalLedger": "ledger accounts",
+            "customersSuppliers": "customers/suppliers",
+            "vatCodes": "VAT codes",
+            "periods": "periods",
+        }
+        for section, n in self.unchecked.items():
+            f.add(
+                "XAF4008",
+                f"{n:,} reference(s) to {what[section]} not checked: the file has no "
+                f"<{section}> section",
+                path=section,
+            )
 
 
 def _written_dc(ln: Line) -> tuple[Decimal, Decimal]:
@@ -940,12 +1060,12 @@ def validate(
         overrides |= {c: None for c in CODES if c not in _VTS_CODES}
     try:
         info = _detect_source(sources[0], encoding)
-    except (ForbiddenConstructError, CorruptArchiveError) as exc:
+    except (ForbiddenConstructError, CorruptArchiveError, LimitExceededError) as exc:
         fc = FindingCollector(overrides=overrides)
         _report_fatal(fc, exc)
         try:
             head = sources[0].head()
-        except CorruptArchiveError:
+        except (CorruptArchiveError, LimitExceededError):
             head = b""
         empty = FormatInfo(
             family=None,
@@ -963,7 +1083,9 @@ def validate(
         max_total=max_findings,
         overrides=overrides,
     )
-    structures: dict[int, _Structure] = {}
+    structures: dict[int, _Structure | None] = {}
+    part_versions: list[Version | None] = []
+    sections: set[str] = set()
     catalogue: Catalogue | None = None
     structure: _Structure | None = None
     journal_ids: _JournalIds | None = None
@@ -974,13 +1096,21 @@ def validate(
         checked.append("L4 structure" + (" (derived catalogue)" if catalogue.derived else ""))
 
     def observer(file: int, ev: tuple[Any, ...]) -> None:
-        # one checker state per file: master data of all files is read before transactions
-        st = structures.get(file)
-        if st is None:
-            assert catalogue is not None
-            st = structures[file] = _Structure(catalogue, fc)
+        # one checker state per file (master data of all files is read before transactions),
+        # with the catalogue of that file's own version
+        if file not in structures:
+            version = part_versions[file] if file < len(part_versions) else info.version
+            structures[file] = (
+                _Structure(get_catalogue(version), fc)
+                if version is not None and version is not Version.ADF
+                else None
+            )
+        st = structures[file]
         fc.file = file
-        st.event(ev)
+        if ev[0] == _xml.START:
+            sections.add(ev[1])
+        if st is not None:
+            st.event(ev)
         if journal_ids is not None:
             journal_ids.event(file, ev)
 
@@ -993,21 +1123,22 @@ def validate(
             _observer=observer if structure is not None else None,
             _value_findings=family is Family.ADF,
             _findings=fc,
+            _on_parts=lambda infos: part_versions.extend(i.version for i in infos),
             max_depth=max_depth,
             max_text_size=max_text_size,
             max_decompressed_size=max_decompressed_size,
         )
-    except (XmlSyntaxError, LimitExceededError, CorruptArchiveError) as exc:
+    except _FATAL as exc:
         _report_fatal(fc, exc)
         return _report(info, fc, tuple(checked), {}, rules)
-    sem = _Semantics(af, fc, rgs)
+    sem = _Semantics(af, fc, rgs, sections=sections)
     fc.file = 0
     sem.master()
     failed = False
     try:
         for tx in af.transactions():
             sem.transaction(tx)
-    except (XmlSyntaxError, LimitExceededError, CorruptArchiveError) as exc:
+    except _FATAL as exc:
         failed = True
         _report_fatal(fc, exc)
     else:
@@ -1025,6 +1156,8 @@ def validate(
         if ran:
             checked.append("L4x xsd")
     af.close()
+    sem.tx_numbers.close()
+    sem.record_ids.close()
     stats = {
         "transactions": sem.tx_count,
         "lines": sem.line_count,
@@ -1036,6 +1169,10 @@ def validate(
         "opening_balance_lines": len(af.opening_balance("element").lines),
     }
     return _report(af.format, fc, tuple(checked), stats, rules)
+
+
+# input problems that end a validation pass; reported as findings, never raised
+_FATAL = (XmlSyntaxError, LimitExceededError, CorruptArchiveError, ForbiddenConstructError)
 
 
 def _report_fatal(fc: FindingCollector, exc: Exception | None) -> None:
@@ -1072,6 +1209,7 @@ def _report(
         checked=checked,
         stats=stats,
         rules=rules,
+        severity_counts=fc.severity_counts,
     )
 
 

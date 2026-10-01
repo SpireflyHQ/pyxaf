@@ -33,6 +33,7 @@ from .models import (
     VatCode,
 )
 from .raw import RawRecord
+from .values import exact_sum
 
 if TYPE_CHECKING:
     from .tables import Tables
@@ -78,10 +79,12 @@ class _Part:
     paused: Iterator[tuple[Any, ...]] | None = None
     pending: tuple[Any, ...] | None = None
     engine: _xml.XmlEngine | None = None
-    complete: bool = False  # a full pass over the transactions has finished
+    complete: bool = False  # a full *normalized* pass has finished (value findings reported)
     frames: dict[str, Any] = field(default_factory=dict)
     totals_fields: dict[str, str] | None = None
     findings: FindingCollector | None = None
+    company_raw: RawRecord | None = None  # this part's administration (set checks)
+    header_raw: RawRecord | None = None
 
     @property
     def transactions_frame(self) -> dict[str, str] | None:
@@ -172,6 +175,7 @@ class AuditFile:
         _observer: Observer | None = None,
         _value_findings: bool = True,
         _findings: FindingCollector | None = None,
+        _on_parts: Callable[[Sequence[FormatInfo]], None] | None = None,
     ) -> None:
         repairs = frozenset(repair)
         unknown = repairs - REPAIRS
@@ -207,6 +211,8 @@ class AuditFile:
         self._names = tuple(s.name for s in opened)
         infos = [_detect_source(s, encoding) for s in opened]
         self._parts = self._group(opened, infos)
+        if _on_parts is not None:
+            _on_parts([p.info for p in self._parts])
         self.format: FormatInfo = self._parts[0].info
         """Detection result of the (first) file."""
         self.version: Version = self.format.version or Version.XAF32
@@ -240,6 +246,7 @@ class AuditFile:
         else:
             for part in self._parts:
                 self._load_master(part)
+            self._check_set()
         self._finish_master()
 
     # ---------------------------------------------------------------- set-up
@@ -264,10 +271,103 @@ class AuditFile:
             parts.append(_Part(len(parts), [src], info))
         return parts
 
+    def _check_set(self) -> None:
+        """Check that the files of a multi-file set belong together (``XAF3008/3009/6011``)."""
+        parts = self._parts
+        for part in parts:
+            self._check_continuations(part)
+        if len(parts) < 2:
+            return
+        first = parts[0]
+        companies = [
+            self._normalizer(p, value_findings=False).company(p.company_raw, p.header_raw)
+            for p in parts
+        ]
+        for part, company in zip(parts[1:], companies[1:], strict=True):
+            sink = self._finding_sink(part.index)
+            if part.info.version != first.info.version:
+                sink.add(
+                    "XAF3008",
+                    f"file is {part.info.version}, the first file of the set is "
+                    f"{first.info.version}; each file is read by the rules of its own version",
+                    value=str(part.info.version),
+                )
+            ref = companies[0]
+            ids = ("identifier", "tax_registration_id", "commerce_number")
+            differing = [
+                k
+                for k in ids
+                if getattr(ref, k)
+                and getattr(company, k)
+                and getattr(ref, k) != getattr(company, k)
+            ]
+            if differing:
+                sink.add(
+                    "XAF6011",
+                    "file belongs to another administration than the first file of the set ("
+                    + ", ".join(
+                        f"{k} {getattr(company, k)!r} ≠ {getattr(ref, k)!r}" for k in differing
+                    )
+                    + ")",
+                    value=getattr(company, differing[0]),
+                )
+            elif (ref.name and company.name) and _fold(ref.name) != _fold(company.name):
+                sink.add(
+                    "XAF6011",
+                    f"company name {company.name!r} differs from the first file's {ref.name!r}",
+                    value=company.name,
+                    severity=Severity.WARNING,
+                )
+        self._findings.file = 0
+
+    def _check_continuations(self, part: _Part) -> None:
+        """'Vervolgbestand x van y' must count 2, 3, … y without gaps (Toelichting 4.0 §1.4)."""
+        if not part.continuation_infos:
+            return
+        expected_total = len(part.continuation_infos) + 1
+        problems = []
+        for n, pos in enumerate(i.continuation for i in part.continuation_infos):
+            if pos is None:
+                continue
+            x, y = pos
+            if x != n + 2:
+                problems.append(f"file {n + 2} of the set says 'Vervolgbestand {x} van {y}'")
+            elif y != expected_total:
+                problems.append(
+                    f"'Vervolgbestand {x} van {y}', but the set has {expected_total} files"
+                )
+        if problems:
+            self._finding_sink(part.index).add(
+                "XAF3009",
+                "continuation files are numbered inconsistently: " + "; ".join(problems),
+            )
+
     def _engine(self, part: _Part, *, skip: frozenset[str] = frozenset()) -> _xml.XmlEngine:
-        info = part.info
         first_pass = part.engine is None
         sink = self._findings if first_pass else None
+        stream, expat_enc = self._prepared(part, sink, first_pass=first_pass)
+        return _xml.XmlEngine(
+            stream,
+            record_tags=RECORD_TAGS[part.info.family or Family.XAF],
+            skip_tags=skip,
+            encoding=expat_enc,
+            max_depth=self._max_depth,
+            max_text=self._max_text,
+            findings=sink,
+            file_index=part.index,
+            strict=self._observer is not None and first_pass,
+        )
+
+    def _prepared(
+        self, part: _Part, sink: FindingCollector | None, *, first_pass: bool = False
+    ) -> tuple[Iterable[bytes], str | None]:
+        """The document bytes as the parser must see them, and the encoding to force.
+
+        Concatenates continuation files, transcodes encodings Expat cannot decode and applies the
+        opt-in repairs. The second value is the encoding that overrides the XML declaration
+        (``None``: trust the declaration). The XSD pass uses the same bytes.
+        """
+        info = part.info
         effective = info.encoding.effective
         if (
             self._encoding is None
@@ -303,16 +403,7 @@ class AuditFile:
         repairs = frozenset() if utf16 else self._repairs
         if repairs or check_c1:
             stream = repair_chunks(stream, repairs, sink, check_c1=check_c1)
-        return _xml.XmlEngine(
-            stream,
-            record_tags=RECORD_TAGS[info.family or Family.XAF],
-            skip_tags=skip,
-            encoding=expat_enc,
-            max_depth=self._max_depth,
-            max_text=self._max_text,
-            findings=sink,
-            file_index=part.index,
-        )
+        return stream, expat_enc
 
     @staticmethod
     def _transcoded(
@@ -367,6 +458,8 @@ class AuditFile:
             if kind == _xml.RECORD:
                 rec: RawRecord = ev[1]
                 tag = rec.tag
+                if tag == "header" and part.header_raw is None:
+                    part.header_raw = rec
                 if tag == "transaction":
                     part.paused = events
                     part.pending = ev
@@ -374,16 +467,21 @@ class AuditFile:
                     return
                 self._master_record(rec, ev[2], norm, first, seqs)
             elif kind == _xml.END:
+                if ev[1].tag == "company" and part.company_raw is None:
+                    part.company_raw = ev[1]
                 self._container_end(ev[1], part, norm, first)
         part.paused = None
         part.pending = None
 
     def _capture_company(self, part: _Part) -> None:
         frame = part.frames.get("company")
-        if frame is not None and part.index == 0 and self._master.company_raw is None:
-            self._master.company_raw = RawRecord(
-                "company", frame[_xml.FIELDS] or {}, frame[_xml.CHILDREN], frame[_xml.LINE]
-            )
+        if frame is None:
+            return
+        rec = RawRecord("company", frame[_xml.FIELDS] or {}, frame[_xml.CHILDREN], frame[_xml.LINE])
+        if part.company_raw is None:
+            part.company_raw = rec
+        if part.index == 0 and self._master.company_raw is None:
+            self._master.company_raw = rec
 
     def _master_record(
         self,
@@ -559,7 +657,7 @@ class AuditFile:
             return totals[0]
 
         def total(values: list[Any]) -> Any:
-            return None if any(v is None for v in values) else sum(values)
+            return None if any(v is None for v in values) else exact_sum(values)
 
         return TransactionTotals(
             lines_count=total([t.lines_count for t in totals]),
@@ -652,11 +750,12 @@ class AuditFile:
                         m.company_raw = ev[1]
         if first_pass:
             m.journals_complete = True
-        part.complete = True
+        if not raw:  # a raw pass produces no value/quality findings
+            part.complete = True
 
     @property
     def raw(self) -> RawView:
-        """Lossless access to the raw records (no normalization; fastest way to stream)."""
+        """The raw records: exact text, no normalization (the fastest way to stream)."""
         return RawView(self)
 
     def lines(self) -> Iterator[Line]:
@@ -780,6 +879,10 @@ class RawView:
 def _prepend(first: tuple[Any, ...], rest: Iterator[tuple[Any, ...]]) -> Iterator[tuple[Any, ...]]:
     yield first
     yield from rest
+
+
+def _fold(name: str) -> str:
+    return " ".join(name.casefold().split())
 
 
 def _replace_rgs(acc: LedgerAccount, ref: RgsRef) -> LedgerAccount:

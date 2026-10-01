@@ -89,7 +89,7 @@ FIELDS = (
     ('/auditfile/transactions/journal/transaction/line/projectDesc', 0, 1, 'string', None, None, 50, None, None, None, None, None, None, None, None),
     ('/auditfile/transactions/journal/transaction/line/vat', 0, 1, 'complex', None, None, None, None, None, None, None, None, None, None, None),
     ('/auditfile/transactions/journal/transaction/line/vat/vatCode', 0, 1, 'string', None, None, 15, None, None, None, None, None, None, None, None),
-    ('/auditfile/transactions/journal/transaction/line/vat/vatPercentage', 1, 1, 'decimal', '4.0', None, None, None, None, None, None, None, None, None, None),
+    ('/auditfile/transactions/journal/transaction/line/vat/vatPercentage', 1, 1, 'double', '4.0', None, None, None, None, None, None, None, None, None, None),
     ('/auditfile/transactions/journal/transaction/line/vat/vatAmount', 1, 1, 'decimal', '4.1', None, None, None, None, None, 20, 2, None, None, None),
     ('/auditfile/transactions/journal/transaction/line/currency', 0, 1, 'complex', None, None, None, None, None, None, None, None, None, None, None),
     ('/auditfile/transactions/journal/transaction/line/currency/currencyCode', 1, 1, 'string', None, None, 3, None, None, None, None, None, None, None, None),

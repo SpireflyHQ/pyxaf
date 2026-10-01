@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import tracemalloc
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,7 +14,14 @@ import pyxaf
 from pyxaf.errors import ForbiddenConstructError, LimitExceededError
 from pyxaf.findings import FindingCollector
 from pyxaf.rgs import RgsSchema, load_excel, parse_ref, parse_version, validate_refs
-from pyxaf.rgs._xlsx import XlsxError, XlsxWorkbook, column_index, iter_rows, sheet_names
+from pyxaf.rgs._xlsx import (
+    MAX_ROWS,
+    XlsxError,
+    XlsxWorkbook,
+    column_index,
+    iter_rows,
+    sheet_names,
+)
 
 MAIN_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -353,6 +361,84 @@ def test_rows_stream_lazily(tmp_path: Path) -> None:
     it = iter_rows(path, "S")
     assert next(it) == ["0"]
     it.close()  # abandoning the generator closes the workbook
+
+
+def _sheet_with_rows(tmp_path: Path, rows_xml: str) -> Path:
+    sheet = f'<worksheet xmlns="{MAIN_NS}"><sheetData>{rows_xml}</sheetData></worksheet>'
+    return build_xlsx(
+        tmp_path / "rows.xlsx", {"S": [["x"]]}, raw_parts={"xl/worksheets/sheet1.xml": sheet}
+    )
+
+
+def test_row_gap_is_expanded_lazily(tmp_path: Path) -> None:
+    # Regression: a tiny <row r="..."> used to append one list per missing row inside the parser
+    # callback (13 MB from 161 bytes for r=200001) before the first row was yielded.
+    path = _sheet_with_rows(
+        tmp_path,
+        '<row r="2"><c r="A2" t="inlineStr"><is><t>two</t></is></c></row>'
+        '<row r="1048576"><c r="B1048576"><v>7</v></c></row>',
+    )
+    tracemalloc.start()
+    try:
+        it = iter_rows(path, "S")
+        head = [next(it) for _ in range(3)]
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    it.close()
+    assert head == [[], ["two"], []]
+    assert peak < 1_000_000
+    rows = list(iter_rows(path, "S"))
+    assert len(rows) == MAX_ROWS
+    assert rows[1] == ["two"]
+    assert rows[-1] == [None, "7"]
+    assert rows[2:-1] == [[]] * (MAX_ROWS - 3)
+
+
+def test_rows_without_number_follow_the_previous_row(tmp_path: Path) -> None:
+    path = _sheet_with_rows(
+        tmp_path,
+        '<row r="3"><c><v>3</v></c></row><row><c><v>4</v></c></row><row r=""><c><v>5</v></c></row>',
+    )
+    assert list(iter_rows(path, "S")) == [[], [], ["3"], ["4"], ["5"]]
+
+
+@pytest.mark.parametrize(
+    ("rows_xml", "error"),
+    [
+        ('<row r="0"/>', XlsxError),
+        ('<row r="-1"/>', XlsxError),
+        ('<row r="x1"/>', XlsxError),
+        ('<row r="1.5"/>', XlsxError),
+        ('<row r=" 2"/>', XlsxError),
+        ('<row r="\u0663"/>', XlsxError),  # Arabic-Indic digit three: not ASCII
+        ('<row r="3"/><row r="2"/>', XlsxError),  # backward
+        ('<row r="2"/><row/><row r="2"/>', XlsxError),  # implicit 3, then explicit 2
+        ('<row r="1048577"/>', LimitExceededError),
+        ('<row r="99999999999999999999999999"/>', LimitExceededError),
+        ('<row r="1048576"/><row/>', LimitExceededError),  # implicit row past the grid
+    ],
+)
+def test_invalid_row_numbers_rejected(
+    tmp_path: Path, rows_xml: str, error: type[Exception]
+) -> None:
+    path = _sheet_with_rows(tmp_path, rows_xml)
+    with pytest.raises(error):
+        list(iter_rows(path, "S"))
+
+
+def test_repeated_row_number_is_allowed(tmp_path: Path) -> None:
+    # MS-OI29500: row numbers are non-decreasing, so a repeated number is legal; each <row>
+    # still yields its own list and no gap is inserted.
+    path = _sheet_with_rows(
+        tmp_path, '<row r="2"><c><v>1</v></c></row><row r="2"><c><v>2</v></c></row><row/>'
+    )
+    assert list(iter_rows(path, "S")) == [[], ["1"], ["2"], []]
+
+
+def test_row_numbers_with_leading_zeros(tmp_path: Path) -> None:
+    path = _sheet_with_rows(tmp_path, '<row r="0002"><c><v>1</v></c></row>')
+    assert list(iter_rows(path, "S")) == [[], ["1"]]
 
 
 # ----------------------------------------------------------------------------- loading

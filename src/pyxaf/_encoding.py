@@ -87,7 +87,8 @@ def sniff_encoding(head: bytes, override: str | None = None) -> EncodingInfo:
         body = head[:4096].decode(enc, errors="ignore").encode("ascii", errors="ignore")
         bom = None
         m = _DECL.match(body)
-        return EncodingInfo(None, m.group(2).decode() if m else None, True, enc, override)
+        effective = canonical(override) if override else enc
+        return EncodingInfo(None, m.group(2).decode() if m else None, True, effective, override)
     m = _DECL.match(body)
     declared = m.group(2).decode("ascii") if m else None
     has_decl = bool(_HAS_DECL.match(body))

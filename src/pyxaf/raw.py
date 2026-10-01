@@ -1,14 +1,18 @@
-"""Lossless raw records: exactly what the file contains, per element.
+"""Raw records: the text of every element, exactly as written.
 
 The raw layer keeps every element — including unknown and vendor-specific ones — with its exact
 text. The normalized model (:mod:`pyxaf.models`) is built from it, and every normalized object
 keeps a reference to its :class:`RawRecord` in ``.raw``.
+
+It is lossless for the data, not for the XML: attributes, namespace prefixes, comments, mixed
+content and the order *between* differently named children are not kept, so a raw record cannot
+reproduce the original document byte for byte.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping, Sequence
-from typing import ClassVar
+from typing import Any, ClassVar
 
 __all__ = ["RawRecord"]
 
@@ -25,9 +29,11 @@ class RawRecord:
         children: Complex child elements (and repeated leaves) by local name, in document order.
         line: 1-based line of the start tag.
         text: Text content for a leaf element stored as a child, else ``None``.
+        sequence: Only during validation: the names of all child elements in document order,
+            as ``[name, count]`` runs of consecutive equal names (``None`` otherwise).
     """
 
-    __slots__ = ("children", "fields", "line", "tag", "text")
+    __slots__ = ("children", "fields", "line", "sequence", "tag", "text")
 
     def __init__(
         self,
@@ -36,12 +42,14 @@ class RawRecord:
         children: dict[str, list[RawRecord]] | None,
         line: int,
         text: str | None = None,
+        sequence: list[list[Any]] | None = None,
     ) -> None:
         self.tag: str = tag
         self.fields: Mapping[str, str] = fields
         self.children: Mapping[str, Sequence[RawRecord]] = children or {}
         self.line: int = line
         self.text: str | None = text
+        self.sequence: list[list[Any]] | None = sequence
 
     def get(self, name: str, default: str | None = None) -> str | None:
         """Return the text of leaf child ``name``."""

@@ -41,7 +41,7 @@ All library code lives in `src/pyxaf/`. Modules starting with `_` are internal.
   DOCTYPE/ENTITY declarations, enforces depth and text-size limits and delivers events in batches.
 - `reader.py`: `pyxaf.open()` and `AuditFile`. It reads master data at open time, pauses at the
   first journal and resumes when transactions are requested, and merges multi-file sets.
-- `raw.py`: `RawRecord`, the lossless record of an element exactly as written.
+- `raw.py`: `RawRecord`, the text of an element and its children exactly as written.
 - `_normalize.py`: builds model objects from raw records for CLAIR2 and XAF 3.0–4.0.
 - `_adf.py`: the fixed-width ADF reader, which produces the same records.
 - `models.py`: the normalized, English-named data model (`Header`, `LedgerAccount`,

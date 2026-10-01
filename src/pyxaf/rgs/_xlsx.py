@@ -13,8 +13,10 @@ Security properties:
 - Every ZIP member is decompressed as a stream and counted; a member that inflates beyond
   ``max_member_size`` raises :class:`~pyxaf.errors.LimitExceededError` (zip-bomb guard). The size
   declared in the ZIP directory is checked first but not trusted.
-- Cell references beyond Excel's own grid (16,384 columns) are refused, so a crafted reference
-  cannot allocate a huge row.
+- Cell references beyond Excel's own grid (16,384 columns) and row numbers beyond it
+  (1,048,576 rows) are refused, so a crafted reference cannot allocate a huge row. Row numbers
+  must be decimal and must not decrease; a gap of absent rows is kept as a count and expanded
+  only as the consumer iterates, so a tiny part cannot make the parser allocate millions of rows.
 
 Rows are produced one at a time from a SAX-style parse; only the shared-string table is held in
 memory.
@@ -37,6 +39,7 @@ if TYPE_CHECKING:
 __all__ = [
     "DEFAULT_MAX_MEMBER_SIZE",
     "MAX_COLUMNS",
+    "MAX_ROWS",
     "XlsxError",
     "XlsxWorkbook",
     "column_index",
@@ -48,6 +51,8 @@ __all__ = [
 DEFAULT_MAX_MEMBER_SIZE: Final = 200 * 1024 * 1024
 #: Number of columns in an Excel worksheet (``A`` … ``XFD``).
 MAX_COLUMNS: Final = 16_384
+#: Number of rows in an Excel worksheet.
+MAX_ROWS: Final = 1_048_576
 
 _CHUNK: Final = 1 << 16
 _NS_SEP: Final = "}"
@@ -92,9 +97,31 @@ def column_index(ref: str) -> int:
     return col - 1
 
 
-def _row_number(ref: str) -> int | None:
-    digits = ref.lstrip("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
-    return int(digits) if digits.isdigit() else None
+def _row_number(ref: str | None, previous: int) -> int:
+    """Return the number of a ``<row>`` from its ``r`` attribute, checked against the grid.
+
+    A missing ``r`` means the row after ``previous`` (Office may omit it). Row numbers must not
+    decrease (MS-OI29500); a repeated number is allowed and yields another row.
+
+    Raises:
+        XlsxError: If ``r`` is not a decimal integer, is 0, or is less than ``previous``.
+        LimitExceededError: If the row is beyond Excel's 1,048,576-row grid.
+    """
+    if ref is None:
+        num = previous + 1
+    else:
+        if not (ref.isascii() and ref.isdigit()):
+            raise XlsxError(f"invalid row number {ref[:20]!r}")
+        if len(ref.lstrip("0")) > len(str(MAX_ROWS)):
+            raise LimitExceededError(f"row number {ref[:20]!r} is beyond row {MAX_ROWS}")
+        num = int(ref)
+        if num == 0:
+            raise XlsxError("invalid row number '0' (rows start at 1)")
+    if num > MAX_ROWS:
+        raise LimitExceededError(f"row number {num} is beyond row {MAX_ROWS}")
+    if num < previous:
+        raise XlsxError(f"row {num} follows row {previous}; row numbers must not decrease")
+    return num
 
 
 def _local(name: str) -> str:
@@ -196,7 +223,8 @@ class XlsxWorkbook:
         """Stream the rows of a worksheet.
 
         Rows are yielded in sheet order, one list per row starting at row 1; rows absent from the
-        file (completely empty) are yielded as ``[]`` so that the n-th item is Excel row n. Missing
+        file (completely empty) are yielded as ``[]`` so that the n-th item is Excel row n (unless a
+        row number repeats, which the format allows: each ``<row>`` is its own item). Missing
         cells inside a row are ``None``. Values are the stored text: shared/inline strings as
         text, numbers as written (``"4980"``, ``"1.5E-3"``), booleans as ``"TRUE"``/``"FALSE"``,
         errors as written (``"#N/A"``). Formula cells yield their cached result.
@@ -210,11 +238,16 @@ class XlsxWorkbook:
         Raises:
             KeyError: If there is no sheet with that name.
             ForbiddenConstructError: If a part contains a DOCTYPE/ENTITY declaration.
-            LimitExceededError: If a part exceeds ``max_member_size``.
+            LimitExceededError: If a part exceeds ``max_member_size`` or a cell or row lies
+                beyond Excel's grid.
+            XlsxError: If a row number is not a positive decimal integer or is less than the
+                previous row's.
         """
         part = self._part(sheet)
         shared = self._shared_strings()
-        pending: list[list[str | None]] = []
+        # Completed rows, and gaps of absent rows as a count (expanded below, outside the parser
+        # callback, so that a tiny ``<row r="1000000">`` cannot allocate a million lists).
+        pending: list[list[str | None] | int] = []
         state: dict[str, Any] = {
             "row": None,  # dict[int, str | None] while inside <row>
             "rownum": 0,  # last yielded row number
@@ -243,11 +276,10 @@ class XlsxWorkbook:
             elif local == "rPh":
                 state["in_rph"] = True
             elif local == "row":
-                rn = attrs.get("r")
-                num = int(rn) if rn and rn.isdigit() else state["rownum"] + 1
-                while state["rownum"] + 1 < num:
-                    pending.append([])
-                    state["rownum"] += 1
+                num = _row_number(attrs.get("r") or None, state["rownum"])
+                if num > state["rownum"] + 1:
+                    pending.append(num - state["rownum"] - 1)
+                    state["rownum"] = num - 1
                 state["r"] = num
                 state["row"] = {}
                 state["col"] = -1
@@ -288,7 +320,12 @@ class XlsxWorkbook:
                 state["rownum"] = state["r"]
                 state["row"] = None
 
-        yield from self._parse(part, start=start, end=end, chars=chars, pending=pending)
+        for item in self._parse(part, start=start, end=end, chars=chars, pending=pending):
+            if isinstance(item, int):
+                for _ in range(item):
+                    yield []
+            else:
+                yield item
 
     # ------------------------------------------------------------------ internals
     def _member(self, name: str) -> Generator[bytes, None, None]:
@@ -318,8 +355,8 @@ class XlsxWorkbook:
         start: Callable[[str, dict[str, str]], None] | None = None,
         end: Callable[[str], None] | None = None,
         chars: Callable[[str], None] | None = None,
-        pending: list[list[str | None]] | None = None,
-    ) -> Iterator[list[str | None]]:
+        pending: list[list[str | None] | int] | None = None,
+    ) -> Iterator[list[str | None] | int]:
         """Parse a part; when ``pending`` is given, yield its items after every chunk."""
         parser = _new_parser()
         if start is not None:

@@ -25,6 +25,7 @@ __all__ = ["CHUNK_SIZE", "Source", "SourceLike", "open_source"]
 SourceLike: TypeAlias = "str | os.PathLike[str] | bytes | bytearray | memoryview | BinaryIO"
 
 CHUNK_SIZE = 1 << 16
+_SLACK = 1 << 20  # decompressed bytes always allowed on top of the ratio guard
 
 _GZIP_MAGIC = b"\x1f\x8b"
 _ZIP_MAGIC = b"PK\x03\x04"
@@ -90,13 +91,30 @@ class Source:
 
 
 class _LimitedReader(io.RawIOBase):
-    """Raise once more than ``limit`` bytes were produced (decompression-bomb guard)."""
+    """Raise once more than ``limit`` bytes were produced (decompression-bomb guard).
 
-    def __init__(self, inner: IO[bytes], limit: int | None, name: str) -> None:
+    With ``ratio`` (and no fixed ``limit``) the cap grows with the compressed bytes read so far,
+    ``compressed × ratio + 1 MiB``: the same guard as for inputs of known size, for streams whose
+    length is unknown.
+    """
+
+    def __init__(
+        self,
+        inner: IO[bytes],
+        limit: int | None,
+        name: str,
+        *,
+        compressed: _Counting | None = None,
+        ratio: float | None = None,
+        owned: tuple[IO[bytes] | zipfile.ZipFile, ...] = (),
+    ) -> None:
         self._inner = inner
+        self._owned = owned  # closed with this reader (gzip/zip do not close a passed file)
         self._limit = limit
         self._count = 0
         self._name = name
+        self._compressed = compressed if limit is None else None
+        self._ratio = ratio
 
     def readable(self) -> bool:
         return True
@@ -110,9 +128,12 @@ class _LimitedReader(io.RawIOBase):
             ) from None
         n = len(data)
         self._count += n
-        if self._limit is not None and self._count > self._limit:
+        limit = self._limit
+        if limit is None and self._compressed is not None and self._ratio is not None:
+            limit = int(self._compressed.count * self._ratio) + _SLACK
+        if limit is not None and self._count > limit:
             raise LimitExceededError(
-                f"{self._name}: decompressed size exceeds the limit of {self._limit:,} bytes "
+                f"{self._name}: decompressed size exceeds the limit of {limit:,} bytes "
                 "(pass a larger max_decompressed_size if this file is legitimate)"
             )
         b[:n] = data
@@ -120,22 +141,55 @@ class _LimitedReader(io.RawIOBase):
 
     def close(self) -> None:
         self._inner.close()
+        for res in self._owned:
+            res.close()
         super().close()
 
 
-class _NonClosing(io.RawIOBase):
-    """Wrap a caller-owned stream so pyxaf never closes it."""
+class _Cursor(io.RawIOBase):
+    """An independent read cursor over a caller-owned seekable stream (never closes it).
+
+    Several passes may read the same stream at once (a paused first pass and a journal scan,
+    say): each cursor keeps its own position and seeks to it before every read, so the passes
+    cannot move each other's position. Not thread-safe, like the stream itself.
+    """
+
+    def __init__(self, inner: IO[bytes], start: int) -> None:
+        self._inner = inner
+        self._pos = start
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, b: bytearray | memoryview) -> int:  # type: ignore[override]
+        self._inner.seek(self._pos)
+        data = self._inner.read(len(b))
+        n = len(data)
+        self._pos += n
+        b[:n] = data
+        return n
+
+
+class _Counting(io.RawIOBase):
+    """Pass bytes through, counting them (compressed input of unknown length)."""
 
     def __init__(self, inner: IO[bytes]) -> None:
         self._inner = inner
+        self.count = 0
 
     def readable(self) -> bool:
         return True
 
     def readinto(self, b: bytearray | memoryview) -> int:  # type: ignore[override]
         data = self._inner.read(len(b))
-        b[: len(data)] = data
-        return len(data)
+        n = len(data)
+        self.count += n
+        b[:n] = data
+        return n
+
+    def close(self) -> None:
+        self._inner.close()
+        super().close()
 
 
 def _check_encrypted(name: str, head: bytes) -> None:
@@ -196,10 +250,11 @@ def open_source(
         size = None
         if reopenable:
             start = stream.tell()
+            size = stream.seek(0, os.SEEK_END) - start  # for the decompression-ratio guard
+            stream.seek(start)
 
             def base() -> IO[bytes]:
-                stream.seek(start)
-                return io.BufferedReader(_NonClosing(stream))
+                return io.BufferedReader(_Cursor(stream, start))
 
         else:
             peek = stream.read(8)
@@ -226,14 +281,29 @@ def open_source(
     # an explicit max_decompressed_size replaces the ratio guard (so it can also raise the cap)
     limit = max_decompressed_size
     if limit is None and size is not None and max_ratio is not None:
-        limit = int(size * max_ratio) + (1 << 20)
+        limit = int(size * max_ratio) + _SLACK
 
     if head.startswith(_GZIP_MAGIC):
 
         def gz() -> IO[bytes]:
+            raw = base()
+            if limit is not None or max_ratio is None:
+                inner = gzip.GzipFile(fileobj=raw, mode="rb")
+                return io.BufferedReader(
+                    _LimitedReader(cast("IO[bytes]", inner), limit, name, owned=(raw,))
+                )
+            # a one-shot stream of unknown length: apply the ratio to what was read so far
+            counted = _Counting(raw)
+            buffered = io.BufferedReader(counted, CHUNK_SIZE)
+            inner = gzip.GzipFile(fileobj=buffered, mode="rb")
             return io.BufferedReader(
                 _LimitedReader(
-                    cast("IO[bytes]", gzip.GzipFile(fileobj=base(), mode="rb")), limit, name
+                    cast("IO[bytes]", inner),
+                    None,
+                    name,
+                    compressed=counted,
+                    ratio=max_ratio,
+                    owned=(buffered,),
                 )
             )
 
@@ -246,9 +316,11 @@ def open_source(
             )
 
         def zp() -> IO[bytes]:
+            raw = base()
             try:
-                zf = zipfile.ZipFile(base())
+                zf = zipfile.ZipFile(raw)
             except (zipfile.BadZipFile, OSError, EOFError) as exc:
+                raw.close()
                 raise CorruptArchiveError(f"{name}: corrupt zip archive ({exc})") from None
             members = [
                 i
@@ -257,18 +329,26 @@ def open_source(
             ]
             if len(members) != 1:
                 zf.close()
+                raw.close()
                 raise NotAnAuditfileError(
                     f"{name}: zip archive must contain exactly one auditfile, found {len(members)}"
                 )
             info = members[0]
             if limit is not None and info.file_size > limit:
                 zf.close()
+                raw.close()
                 raise LimitExceededError(
                     f"{name}: member {info.filename} is {info.file_size:,} bytes uncompressed, "
                     f"over the limit of {limit:,}"
                 )
-            _check_encrypted(info.filename, b"")
-            return io.BufferedReader(_LimitedReader(zf.open(info), limit, name))
+            try:
+                _check_encrypted(info.filename, b"")
+                member = zf.open(info)
+            except BaseException:
+                zf.close()
+                raw.close()
+                raise
+            return io.BufferedReader(_LimitedReader(member, limit, name, owned=(zf, raw)))
 
         return Source(name, "zip", True, zp, size)
 

@@ -23,7 +23,7 @@ in which attribute.
 |---|---|
 | `str` or `os.PathLike` | a path; opened in binary mode, re-opened for every pass |
 | `bytes`, `bytearray`, `memoryview` | the whole file in memory |
-| binary file object | anything with `read()` returning `bytes`, e.g. `open(p, "rb")`, `io.BytesIO`, an upload stream; seekable streams can be read repeatedly, non-seekable ones once (see [below](#re-iteration-and-one-shot-streams)); pyxaf never closes a stream you pass |
+| binary file object | anything with `read()` returning `bytes`, e.g. `open(p, "rb")`, `io.BytesIO`, an upload stream; seekable streams can be read repeatedly, non-seekable ones once (see [below](#re-iteration-and-one-shot-streams)); pyxaf never closes a stream you pass, and every pass keeps its own position in it, so do not read or seek the stream yourself while pyxaf uses it |
 | a sequence of the above | a [multi-file set](#multi-file-sets) |
 
 Compression is recognised by its magic bytes, not by the file name: **gzip** files and **zip**
@@ -228,10 +228,12 @@ ADF, which have separate debit and credit amounts, `signed_amount` is debit minu
 
 ## The raw layer
 
-Normalization never loses information. Every normalized object keeps the
+Normalization never loses the data. Every normalized object keeps the
 [`RawRecord`](../reference/api.md#pyxaf.raw.RawRecord) it was built from in `.raw`: the element with its leaf
 children as `fields` (exact text, whitespace preserved, empty elements as `""`) and complex
 children as `children`, plus its line number. Unknown and vendor-specific elements are kept too.
+The raw layer is exact for the data, not for the XML markup: attributes, namespace prefixes,
+comments and the order between differently named children are not kept.
 
 ```python
 with pyxaf.open("vendor.xaf") as af:
@@ -310,6 +312,16 @@ later file is reported as `XAF6010`. Transactions are concatenated in the order 
 totals are summed (`af.transaction_totals`); the opening-balance element is taken from the first
 file.
 
+pyxaf checks that the files belong together, without refusing the set:
+
+- a file that names another administration than the first file (a different `companyIdent`,
+  `taxRegIdent` or commerce number) gives `XAF6011` (ERROR); only a different company name gives
+  `XAF6011` as a WARNING;
+- a file of another version than the first gives `XAF3008`; each file is still read and validated
+  by the rules of its own version;
+- continuation files must count `Vervolgbestand 2 van y`, `3 van y`, … up to `y`, the number of
+  files; anything else gives `XAF3009`.
+
 ADF files cannot be combined into a set.
 
 ## Encodings
@@ -381,5 +393,8 @@ silences it with `None`.
 | `max_decompressed_size` | none | gzip/zip archives that inflate too far |
 
 Unless `max_decompressed_size` is given (it replaces this guard), a gzip or zip input may not
-inflate to more than 100 times its compressed size plus 1 MiB (a decompression-bomb guard). Exceeding a limit raises `LimitExceededError`. See
+inflate to more than 100 times its compressed size plus 1 MiB (a decompression-bomb guard). This
+holds for every kind of source: for a non-seekable stream, whose size is unknown in advance, the
+ratio is applied to the compressed bytes read so far. Exceeding a limit raises
+`LimitExceededError`. See
 [Security](../security.md).

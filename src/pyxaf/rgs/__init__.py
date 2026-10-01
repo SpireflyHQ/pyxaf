@@ -53,8 +53,8 @@ ACCOUNT_LEVELS: Final = frozenset({4, 5})
 
 _HEADER_SCAN_ROWS: Final = 10
 _FALSY: Final = frozenset({"", "0", "false", "nee", "n", "no"})
-_VERSION_IN_NAME = re.compile(r"rgs\s*[-_ ]?\s*v?(\d+(?:[.,]\d+)+)", re.IGNORECASE)
-_VERSION_LENIENT = re.compile(r"(?<![\d.])(\d+(?:[.,]\d+)*)")
+_VERSION_IN_NAME = re.compile(r"rgs\s*[-_ ]?\s*v?([0-9]+(?:[.,][0-9]+)+)", re.IGNORECASE)
+_VERSION_LENIENT = re.compile(r"(?<![0-9.])([0-9]+(?:[.,][0-9]+)*)")
 
 # normalised header text → field name
 _FIELDS: Final[Mapping[str, str]] = {
@@ -140,7 +140,7 @@ def parse_version(text: str | None) -> str | None:
     m = _VERSION_IN_NAME.search(text) or _VERSION_LENIENT.search(text)
     if m is None:
         return None
-    parts = [str(int(p)) for p in re.split(r"[.,]", m.group(1))]
+    parts = [p.lstrip("0") or "0" for p in re.split(r"[.,]", m.group(1))]
     while len(parts) > 2 and parts[-1] == "0":
         parts.pop()
     return ".".join(parts)
@@ -384,7 +384,7 @@ def _row_count(wb: XlsxWorkbook, sheet: str) -> int:
     dim = wb.dimension(sheet)
     if dim:
         last = dim.rpartition(":")[2].lstrip("$ABCDEFGHIJKLMNOPQRSTUVWXYZ").replace("$", "")
-        if last.isdigit():
+        if last.isascii() and last.isdigit() and len(last) <= 7:  # Excel: 1,048,576 rows
             return int(last)
     return sum(1 for _ in wb.iter_rows(sheet))
 
@@ -442,7 +442,12 @@ def _read_codes(wb: XlsxWorkbook, layout: _Layout) -> tuple[list[RgsCode], list[
         out.append(
             RgsCode(
                 code=code,
-                level=int(level_text) if level_text and level_text.isdigit() else None,
+                level=int(level_text)
+                if level_text
+                and level_text.isascii()
+                and level_text.isdigit()
+                and len(level_text) < 4
+                else None,
                 description=_cell(row, columns.get("description")),
                 short_description=_cell(row, columns.get("short_description")),
                 debit_credit=_cell(row, columns.get("debit_credit")),

@@ -26,7 +26,18 @@ from .errors import ForbiddenConstructError, LimitExceededError, XmlSyntaxError
 from .findings import FindingCollector
 from .raw import RawRecord
 
-__all__ = ["CHILDREN", "END", "FIELDS", "LINE", "RECORD", "START", "TAG", "Frame", "XmlEngine"]
+__all__ = [
+    "CHILDREN",
+    "END",
+    "FIELDS",
+    "LINE",
+    "RECORD",
+    "SEQ",
+    "START",
+    "TAG",
+    "Frame",
+    "XmlEngine",
+]
 
 # event kinds
 START: Final = 0
@@ -38,12 +49,15 @@ END: Final = 2
 """``(END, RawRecord, depth)`` — a complex container element ended."""
 
 # frame layout (lists are markedly faster than objects in the hot path)
-TAG, FIELDS, CHILDREN, TEXT, LINE = range(5)
-Frame: TypeAlias = list[Any]  # [tag, fields | None, children | None, text, line]
+TAG, FIELDS, CHILDREN, TEXT, LINE, SEQ = range(6)
+Frame: TypeAlias = list[Any]  # [tag, fields | None, children | None, text, line, sequence | None]
 
 CHUNK: Final = 1 << 16
 DEFAULT_MAX_DEPTH: Final = 32
 DEFAULT_MAX_TEXT: Final = 10 * 1024 * 1024
+MAX_RUNS: Final = 256
+"""Strict mode keeps at most this many runs of child names per element (a valid document has
+at most one run per declared child, far fewer)."""
 
 
 class XmlEngine:
@@ -58,6 +72,8 @@ class XmlEngine:
         max_text: Maximum text length of a single element.
         findings: Collector for non-fatal problems (trailing data).
         file_index: Index of the file in a multi-file set (for error positions).
+        strict: Validation mode: record the order of every element's children (``RawRecord.
+            sequence``) and report elements outside the document's namespace (``XAF3011``).
     """
 
     def __init__(
@@ -71,8 +87,10 @@ class XmlEngine:
         max_text: int = DEFAULT_MAX_TEXT,
         findings: FindingCollector | None = None,
         file_index: int = 0,
+        strict: bool = False,
     ) -> None:
         self._chunks = chunks
+        self._strict = strict
         self._record_tags = record_tags
         self._skip_tags = skip_tags
         self._encoding = encoding
@@ -107,6 +125,48 @@ class XmlEngine:
         # mutable state captured by the closures
         state = [0, 0, 0]  # depth, record_depth, skip_depth
         DEPTH, REC, SKIP = 0, 1, 2  # noqa: N806
+        strict = self._strict
+        sink = self._findings
+        # strict mode: namespace declarations in scope, as (depth, {prefix: uri}); "" = default
+        ns_scopes: list[tuple[int, dict[str, str]]] = []
+        doc_ns: list[str | None] = [None]
+        root_prefix: list[str | None] = [None]  # None until the root element is seen
+
+        def check_namespace(name: str, attrs: dict[str, str], depth: int) -> None:
+            if attrs:
+                decl = {
+                    (k[6:] if k != "xmlns" else ""): v
+                    for k, v in attrs.items()
+                    if k == "xmlns" or k.startswith("xmlns:")
+                }
+                if decl:
+                    ns_scopes.append((depth, decl))
+            i = name.find(":")
+            prefix = name[:i] if i >= 0 else ""
+            uri: str | None = None
+            bound = not prefix
+            for _depth, decl in reversed(ns_scopes):
+                if prefix in decl:
+                    uri, bound = decl[prefix] or None, True
+                    break
+            if depth == 1:
+                doc_ns[0] = uri
+                root_prefix[0] = prefix
+                return
+            if sink is None or (bound and uri == doc_ns[0]):
+                return
+            local = name[i + 1 :]
+            where = (
+                f"uses the undeclared prefix {prefix!r}"
+                if not bound
+                else f"is in namespace {uri!r}, not in the document's {doc_ns[0]!r}"
+            )
+            sink.add(
+                "XAF3011",
+                f"<{local}> {where}",
+                line=parser.CurrentLineNumber,
+                value=name,
+            )
 
         def forbidden(*_: object) -> None:
             raise ForbiddenConstructError(
@@ -128,6 +188,11 @@ class XmlEngine:
                 return
             i = name.find(":")
             local = name[i + 1 :] if i >= 0 else name
+            # fast path: no declarations below the root and the root's prefix → same namespace
+            if strict and (
+                attrs or len(ns_scopes) != 1 or (name[:i] if i >= 0 else "") != root_prefix[0]
+            ):
+                check_namespace(name, attrs, depth)
             if depth == 1:
                 self._root(name, local, attrs)
             if stack:
@@ -142,15 +207,15 @@ class XmlEngine:
                 if local in record_tags:
                     state[REC] = depth
                     parser.StartElementHandler = start_in_record
-                    stack.append([local, None, None, "", parser.CurrentLineNumber])
+                    stack.append([local, None, None, "", parser.CurrentLineNumber, None])
                     return
-                frame: Frame = [local, None, None, "", parser.CurrentLineNumber]
+                frame: Frame = [local, None, None, "", parser.CurrentLineNumber, None]
                 pending.append((START, local, depth, frame[LINE], frame))
                 stack.append(frame)
                 return
-            stack.append([local, None, None, "", parser.CurrentLineNumber])
+            stack.append([local, None, None, "", parser.CurrentLineNumber, None])
 
-        def start_in_record(name: str, _attrs: dict[str, str]) -> None:
+        def start_in_record(name: str, attrs: dict[str, str]) -> None:
             depth = state[DEPTH] + 1
             state[DEPTH] = depth
             if depth > max_depth:
@@ -158,8 +223,12 @@ class XmlEngine:
                     f"element nesting deeper than {max_depth} at line {parser.CurrentLineNumber}"
                 )
             i = name.find(":")
+            if strict and (
+                attrs or len(ns_scopes) != 1 or (name[:i] if i >= 0 else "") != root_prefix[0]
+            ):
+                check_namespace(name, attrs, depth)
             stack.append(
-                [name[i + 1 :] if i >= 0 else name, None, None, "", parser.CurrentLineNumber]
+                [name[i + 1 :] if i >= 0 else name, None, None, "", parser.CurrentLineNumber, None]
             )
 
         def chars(data: str) -> None:
@@ -195,6 +264,8 @@ class XmlEngine:
         def end(_name: str) -> None:
             depth = state[DEPTH]
             state[DEPTH] = depth - 1
+            if ns_scopes and ns_scopes[-1][0] == depth:
+                ns_scopes.pop()
             if state[SKIP]:
                 if depth == state[SKIP]:
                     state[SKIP] = 0
@@ -203,6 +274,15 @@ class XmlEngine:
             f = stack.pop()
             if depth == 1:
                 self.root_closed = True
+            if strict and stack:  # the parent's child sequence, as runs of equal names
+                runs = stack[-1][SEQ]
+                tag = f[TAG]
+                if runs is None:
+                    stack[-1][SEQ] = [[tag, 1]]
+                elif runs[-1][0] == tag:
+                    runs[-1][1] += 1
+                elif len(runs) < MAX_RUNS:
+                    runs.append([tag, 1])
             fields = f[FIELDS]
             children = f[CHILDREN]
             rec_depth = state[REC]
@@ -212,12 +292,16 @@ class XmlEngine:
                 if stack and stack[-1][CHILDREN] is None:
                     stack[-1][CHILDREN] = {}  # mark the container as having element children
                 pending.append(
-                    (RECORD, RawRecord(f[TAG], fields or {}, children, f[LINE]), tuple(stack))
+                    (
+                        RECORD,
+                        RawRecord(f[TAG], fields or {}, children, f[LINE], None, f[SEQ]),
+                        tuple(stack),
+                    )
                 )
                 return
             if not stack:
                 if fields is None and children is None:
-                    pending.append((END, RawRecord(f[TAG], {}, None, f[LINE]), depth))
+                    pending.append((END, RawRecord(f[TAG], {}, None, f[LINE], None, f[SEQ]), depth))
                     return
             elif fields is None and children is None:
                 # leaf element (no element children): a field of its parent
@@ -237,7 +321,7 @@ class XmlEngine:
                         lst.append(RawRecord(tag, {}, None, parent[LINE], pf[tag]))
                     lst.append(RawRecord(tag, {}, None, f[LINE], f[TEXT]))
                 return
-            rec = RawRecord(f[TAG], fields or {}, children, f[LINE])
+            rec = RawRecord(f[TAG], fields or {}, children, f[LINE], None, f[SEQ])
             if stack:
                 parent = stack[-1]
                 ch = parent[CHILDREN]

@@ -158,9 +158,9 @@ a list of objects with `code`, `severity`, `title`, `rule_ref`. The same list is
 | 0 | success; for `validate`: no errors (and, with `--strict`, no warnings) |
 | 1 | `validate --strict`: warnings, but no errors |
 | 2 | `validate`: at least one ERROR finding in at least one file |
-| 3 | tool failure: the input could not be read (not an auditfile, encrypted, unreadable), a missing extra, or the `cli` extra is not installed |
+| 3 | tool failure: a usage error (unknown command or option, missing argument, a file that does not exist), the input could not be read (not an auditfile, encrypted, unreadable), a missing extra, or the `cli` extra is not installed |
 
 !!! note
-    Command-line usage errors (an unknown option, a file that does not exist) are reported by
-    Click and also exit with code 2. Check the error output to tell them apart from validation
-    errors.
+    Command-line usage errors (an unknown command or option, a missing argument, a file that does
+    not exist) exit with code 3, for both `pyxaf` and `python -m pyxaf`, so they can never be
+    mistaken for code 2 (ERROR findings). The error output says what was wrong.

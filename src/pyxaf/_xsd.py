@@ -13,7 +13,7 @@ from collections.abc import Iterable, Iterator
 from importlib import resources
 from typing import TYPE_CHECKING, Any
 
-from ._encoding import repair_chunks
+from ._encoding import transcode_chunks
 from ._optional import require
 from .findings import FindingCollector, Severity
 from .formats import NamespaceStatus, Version
@@ -88,19 +88,14 @@ def validate_xsd(af: AuditFile, findings: FindingCollector) -> bool:
             continue
         schema = load_schema(version)
         ran = True
-
-        def chunks(part: Any = part) -> Iterator[bytes]:
-            from .reader import _strip_prolog  # noqa: PLC0415
-
-            for n, src in enumerate(part.sources):
-                raw: Iterable[bytes] = src.chunks()
-                if n > 0:
-                    raw = _strip_prolog(raw)
-                yield from raw
-
-        stream: Iterable[bytes] = chunks()
-        if af._repairs:
-            stream = repair_chunks(stream, af._repairs, None)
+        # the bytes the core parsed: same continuation handling, transcoding, override, repairs
+        stream, forced = af._prepared(part, None)
+        encoding = None
+        if forced is not None:  # the XML declaration is overridden: hand lxml UTF-8
+            if forced != "utf-8":
+                stream = transcode_chunks(stream, forced)
+            stream = _strip_bom(stream)  # lxml does not skip a BOM when the encoding is forced
+            encoding = "utf-8"
         sizes = [s.size for s in part.sources]
         compressed = any(s.compression for s in part.sources)
         size = (
@@ -110,7 +105,7 @@ def validate_xsd(af: AuditFile, findings: FindingCollector) -> bool:
         )
         reader = io.BufferedReader(_ChunkStream(stream))
         if size <= FULL_TREE_LIMIT:
-            parser = etree.XMLParser(**_SAFE)
+            parser = etree.XMLParser(encoding=encoding, **_SAFE)
             try:
                 doc = etree.parse(reader, parser)
             except etree.XMLSyntaxError as exc:
@@ -126,8 +121,14 @@ def validate_xsd(af: AuditFile, findings: FindingCollector) -> bool:
                     )
             continue
         try:
-            for _ev, el in etree.iterparse(reader, events=("end",), schema=schema, **_SAFE):
+            for _ev, el in etree.iterparse(
+                reader, events=("end",), schema=schema, encoding=encoding, **_SAFE
+            ):
                 el.clear(keep_tail=True)
+                # clear() empties the element but leaves it attached: drop finished siblings so
+                # memory stays flat (the schema validator does not need them)
+                while el.getprevious() is not None:
+                    del el.getparent()[0]
         except etree.XMLSyntaxError as exc:
             last = exc.error_log.last_error if exc.error_log else None
             findings.add(
@@ -138,6 +139,18 @@ def validate_xsd(af: AuditFile, findings: FindingCollector) -> bool:
                 file=part.index,
             )
     return ran
+
+
+def _strip_bom(chunks: Iterable[bytes]) -> Iterator[bytes]:
+    """Drop a leading UTF-8 byte-order mark."""
+    it = iter(chunks)
+    head = b""
+    for chunk in it:
+        head += chunk
+        if len(head) >= 3:
+            break
+    yield head.removeprefix(b"\xef\xbb\xbf")
+    yield from it
 
 
 def _clean(message: str) -> str:

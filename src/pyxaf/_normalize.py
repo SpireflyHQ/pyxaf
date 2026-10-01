@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from decimal import Decimal
 from typing import Literal
 
-from .findings import FindingCollector
+from .findings import FindingCollector, Severity
 from .formats import Family, Version
 from .models import (
     AccountType,
@@ -30,7 +30,7 @@ from .models import (
     VatLine,
 )
 from .raw import RawRecord
-from .values import parse_amount, parse_date, parse_int
+from .values import exact_sub, is_double, parse_amount, parse_date, parse_double, parse_int
 
 __all__ = ["NegativePolicy", "Normalizer"]
 
@@ -111,6 +111,25 @@ class Normalizer:
             )
         return value
 
+    def _double(self, rec: RawRecord, name: str, path: str) -> Decimal | None:
+        """An ``xs:double`` field (exponents allowed); ``INF``/``NaN`` cannot be an amount."""
+        text = rec.fields.get(name)
+        if text is None:
+            return None
+        value = parse_double(text)
+        if value is None and self.value_findings:
+            valid = is_double(text)
+            self.findings.add(
+                "XAF3018",
+                f"<{name}> is "
+                + ("not a finite number in range" if valid else "not a valid number"),
+                line=rec.line,
+                path=path,
+                value=text,
+                severity=Severity.WARNING if valid else None,
+            )
+        return value
+
     def date(self, rec: RawRecord, name: str, path: str) -> dt.date | None:
         text = rec.fields.get(name)
         if text is None:
@@ -161,10 +180,10 @@ class Normalizer:
                     value=rec.fields.get("amnt"),
                 )
             if self.policy == "abs":
-                amount = -amount
+                amount = amount.copy_negate()
         if not amount:
-            return side, abs(amount)  # avoid -0.00
-        return side, amount if side is Side.DEBIT else -amount
+            return side, amount.copy_abs()  # avoid -0.00
+        return side, amount if side is Side.DEBIT else amount.copy_negate()
 
     @staticmethod
     def split(signed: Decimal | None) -> tuple[Decimal | None, Decimal | None]:
@@ -172,7 +191,7 @@ class Normalizer:
             return None, None
         if signed >= 0:
             return signed, _ZERO
-        return _ZERO, -signed
+        return _ZERO, signed.copy_negate()
 
     # ------------------------------------------------------------------ header
     def header(self, rec: RawRecord) -> Header:
@@ -440,7 +459,7 @@ class Normalizer:
     def _vat(self, rec: RawRecord, path: str) -> VatLine:
         f = rec.fields
         if self.family is Family.CLAIR2:
-            perc = self.amount(rec, "vatPercentage", path)
+            perc = self._double(rec, "vatPercentage", path)
             amt = self.amount(rec, "vatAmount", path)
             return VatLine(
                 code=_s(f.get("vatCode")),
@@ -487,7 +506,7 @@ class Normalizer:
         elif signed >= 0:
             debit, credit = signed, _ZERO
         else:
-            debit, credit = _ZERO, -signed
+            debit, credit = _ZERO, signed.copy_negate()
         if "effDate" in f:
             kw["effective_date"] = self.date(rec, "effDate", path)
         if "settDate" in f:
@@ -604,7 +623,7 @@ class Normalizer:
                     value=get("debitAmount") if d < 0 else get("creditAmount"),
                 )
             if self.policy == "abs":
-                d, c = abs(d), abs(c)
+                d, c = d.copy_abs(), c.copy_abs()
             if d and c and self.quality_findings:
                 self.findings.add(
                     "XAF7013",
@@ -612,13 +631,15 @@ class Normalizer:
                     line=rec.line,
                     path=path,
                 )
-            signed = abs(d - c) if d == c else d - c  # no -0.00
+            signed = exact_sub(d, c)
+            if d == c:
+                signed = signed.copy_abs()  # no -0.00
             if c and not d:
                 amount, side = c, Side.CREDIT
             elif d and not c:
                 amount, side = d, Side.DEBIT
             else:
-                amount, side = abs(signed), Side.DEBIT if signed >= 0 else Side.CREDIT
+                amount, side = signed.copy_abs(), Side.DEBIT if signed >= 0 else Side.CREDIT
         debit, credit = self.split(signed)
         vat = rec.children.get("vat")
         cur = rec.child("currency")
@@ -635,10 +656,10 @@ class Normalizer:
                 if "currencyCreditAmount" in cur.fields
                 else _ZERO
             )
-            fsigned = None if cd is None or cc is None else cd - cc
+            fsigned = None if cd is None or cc is None else exact_sub(cd, cc)
             foreign = ForeignAmount(
                 currency=_s(cur.fields.get("currencyCode")),
-                amount=None if fsigned is None else abs(fsigned),
+                amount=None if fsigned is None else fsigned.copy_abs(),
                 signed_amount=fsigned,
             )
         seq = self.line_seq

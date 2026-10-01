@@ -31,6 +31,7 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import json
+import operator
 import os
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
@@ -164,6 +165,17 @@ def _vat_rows(ln: Line) -> Iterator[Row]:
         )  # fmt: skip
 
 
+def check_batch_size(batch_size: int) -> int:
+    """Return ``batch_size`` if it is a positive integer, else raise ``ValueError``."""
+    try:
+        n = operator.index(batch_size)
+    except TypeError:
+        n = 0
+    if n < 1:
+        raise ValueError(f"batch_size must be a positive integer, not {batch_size!r}")
+    return n
+
+
 class Table:
     """One normalized table: schema plus lazily produced rows.
 
@@ -201,6 +213,7 @@ class Table:
         """
         from ._arrow import batches  # noqa: PLC0415
 
+        check_batch_size(batch_size)
         return batches(self.columns, self.rows(), batch_size, on_inexact)
 
     def __arrow_c_schema__(self) -> object:
@@ -352,6 +365,7 @@ class Tables:
         Every table yields at least one (possibly empty) chunk; the streamed tables are produced
         together in a single pass over the file.
         """
+        check_batch_size(batch_size)
         for n in names:
             if n not in STREAMED:
                 it = iter(self._rows(n))
@@ -399,6 +413,7 @@ class Tables:
         for n in names:
             if n not in TABLES:
                 raise KeyError(f"unknown table {n!r}")
+        check_batch_size(batch_size)
         out = Path(directory)
         out.mkdir(parents=True, exist_ok=True)
         if format == "parquet":
@@ -453,6 +468,7 @@ class Tables:
         """
         from ._arrow import polars_frames  # noqa: PLC0415
 
+        check_batch_size(batch_size)
         return polars_frames(self, list(tables or TABLES), batch_size, on_inexact)
 
     def to_pandas(

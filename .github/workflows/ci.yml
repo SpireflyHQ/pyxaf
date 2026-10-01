@@ -5,11 +5,16 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # release.yml calls this workflow so a tag is only published after CI passes on that exact commit.
+  # In a called workflow the `github` context (event_name, ref, sha, workflow) is the caller's.
+  workflow_call:
 
 permissions: {}
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # The `ci-` prefix keeps the group distinct from the calling release workflow's own group
+  # (`github.workflow` is the caller's name there); an equal group would deadlock the release.
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   # Cancel superseded runs on pull requests; let every push to main finish.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
@@ -32,7 +37,8 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          enable-cache: true
+          # No cache when called from a tag release (cache-poisoning hardening).
+          enable-cache: ${{ !startsWith(github.ref, 'refs/tags/') }}
       - name: ruff check
         run: uv run --only-group lint ruff check --output-format=github
       - name: ruff format --check
@@ -50,7 +56,8 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          enable-cache: true
+          # No cache when called from a tag release (cache-poisoning hardening).
+          enable-cache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           python-version: "3.11"
       - name: Install (all extras, so optional imports type-check)
         run: uv sync --all-extras
@@ -85,7 +92,8 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          enable-cache: true
+          # No cache when called from a tag release (cache-poisoning hardening).
+          enable-cache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           python-version: ${{ matrix.python }}
       - name: pytest (all extras)
         run: uv run --all-extras pytest --cov --cov-report=term
@@ -103,7 +111,8 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          enable-cache: true
+          # No cache when called from a tag release (cache-poisoning hardening).
+          enable-cache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           python-version: "3.11"
       - name: Build the wheel
         run: uv build --wheel --no-sources --out-dir dist
@@ -161,7 +170,8 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          enable-cache: true
+          # No cache when called from a tag release (cache-poisoning hardening).
+          enable-cache: ${{ !startsWith(github.ref, 'refs/tags/') }}
       - name: Regenerate the field catalogues
         run: uv run --no-default-groups --group gen python scripts/gen_catalogues.py
       - name: Regenerate the reference pages
@@ -175,6 +185,8 @@ jobs:
 
   experimental:
     name: Experimental (${{ matrix.python }}, non-blocking)
+    # Non-blocking jobs are skipped when a release calls this workflow.
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     continue-on-error: true
@@ -192,7 +204,8 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          enable-cache: true
+          # No cache when called from a tag release (cache-poisoning hardening).
+          enable-cache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           python-version: ${{ matrix.python }}
       - name: pytest (core only)
         env:
@@ -204,6 +217,8 @@ jobs:
 
   benchmark:
     name: Benchmark (non-blocking)
+    # Non-blocking jobs are skipped when a release calls this workflow.
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     continue-on-error: true
@@ -215,7 +230,8 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          enable-cache: true
+          # No cache when called from a tag release (cache-poisoning hardening).
+          enable-cache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           python-version: "3.14"
       - name: Run benchmarks/run.py
         run: uv run --all-extras python benchmarks/run.py --lines 200000

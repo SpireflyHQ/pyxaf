@@ -6,6 +6,8 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  # Dry run (Actions → Release → Run workflow): CI and the build checks, never publishes.
+  workflow_dispatch:
 
 permissions: {}
 
@@ -19,6 +21,15 @@ env:
   UV_NO_PROGRESS: "1"
 
 jobs:
+  ci:
+    # The full CI suite on the exact tagged commit; nothing is published unless it passes.
+    # Publishing itself stays in this top-level workflow: trusted publishing does not work from
+    # inside a reusable workflow.
+    name: CI
+    uses: $/.github/workflows/ci.yml
+    permissions:
+      contents: read
+
   build:
     name: Build and check distributions
     runs-on: ubuntu-latest
@@ -37,6 +48,7 @@ jobs:
           enable-cache: false
           python-version: "3.14"
       - name: Tag must match the version in pyproject.toml
+        if: github.event_name == 'push'
         run: |
           version="$(uv version --short --color never)"
           echo "pyproject version: $version, tag: $GITHUB_REF_NAME"
@@ -65,8 +77,8 @@ jobs:
 
   publish-pypi:
     name: Publish to PyPI
-    needs: [build]
-    if: needs.build.outputs.prerelease == 'false'
+    needs: [build, ci]
+    if: github.event_name == 'push' && needs.build.outputs.prerelease == 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment:
@@ -83,8 +95,8 @@ jobs:
 
   publish-testpypi:
     name: Publish to TestPyPI (pre-release)
-    needs: [build]
-    if: needs.build.outputs.prerelease == 'true'
+    needs: [build, ci]
+    if: github.event_name == 'push' && needs.build.outputs.prerelease == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment:

@@ -8,6 +8,8 @@ change in minor releases. Finding codes are stable: a code is never renumbered o
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-01
+
 Initial release.
 
 ### Added
@@ -59,4 +61,5 @@ Initial release.
   network or entity resolution, limits on nesting depth, text-node size and decompressed size.
 - Zero runtime dependencies in the core; fully typed (`py.typed`); Python 3.11–3.14.
 
-[Unreleased]: https://github.com/SpireflyHQ/pyxaf/commits/main
+[Unreleased]: https://github.com/SpireflyHQ/pyxaf/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/SpireflyHQ/pyxaf/releases/tag/v0.1.0

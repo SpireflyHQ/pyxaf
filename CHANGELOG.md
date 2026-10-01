@@ -8,6 +8,18 @@ change in minor releases. Finding codes are stable: a code is never renumbered o
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-01
+
+### Added
+
+- Synthetic sample auditfiles in `examples/` (`2024.xaf` and `2024-broken.xaf`) to try pyxaf
+  without an auditfile of your own.
+
+### Fixed
+
+- The README quickstart referred to a `2024.xaf` that was not available; it now starts by
+  downloading the sample files.
+
 ## [0.1.0] - 2026-10-01
 
 Initial release.
@@ -61,5 +73,6 @@ Initial release.
   network or entity resolution, limits on nesting depth, text-node size and decompressed size.
 - Zero runtime dependencies in the core; fully typed (`py.typed`); Python 3.11–3.14.
 
-[Unreleased]: https://github.com/SpireflyHQ/pyxaf/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/SpireflyHQ/pyxaf/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/SpireflyHQ/pyxaf/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/SpireflyHQ/pyxaf/releases/tag/v0.1.0

@@ -194,8 +194,11 @@ jobs:
           python-version: ${{ matrix.python }}
       - name: pytest (core only)
         env:
-          PYTHON_GIL: "0"
-        run: uv run --no-default-groups --group test pytest -m "not extras"
+          PYTHON: ${{ matrix.python }}
+        run: |
+          # Only free-threaded builds accept PYTHON_GIL=0; regular builds abort on it.
+          if [[ "$PYTHON" == *t ]]; then export PYTHON_GIL=0; fi
+          uv run --no-default-groups --group test pytest -m "not extras"
 
   benchmark:
     name: Benchmark (non-blocking)

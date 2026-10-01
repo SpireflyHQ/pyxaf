@@ -23,8 +23,8 @@ jobs:
     name: Scorecard analysis
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # publish_results only works from the default branch.
-    if: github.event.repository.default_branch == github.ref_name
+    # Scorecard only supports public repositories here, and publish_results only the default branch.
+    if: ${{ !github.event.repository.private && github.event.repository.default_branch == github.ref_name }}
     permissions:
       contents: read
       security-events: write # upload the results to code scanning

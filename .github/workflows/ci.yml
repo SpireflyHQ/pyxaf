@@ -149,7 +149,7 @@ jobs:
         run: '"$RUNNER_TEMP/core/bin/python" -m pytest -m "not extras" -p no:cacheprovider'
 
   generated:
-    # The field catalogues and reference pages are generated; fail when they are stale.
+    # The field catalogues, reference pages and sample files are generated; fail when they are stale.
     name: Generated files up to date
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -166,10 +166,12 @@ jobs:
         run: uv run --no-default-groups --group gen python scripts/gen_catalogues.py
       - name: Regenerate the reference pages
         run: uv run --no-default-groups python scripts/gen_docs.py
+      - name: Regenerate the sample files
+        run: uv run --no-default-groups python scripts/gen_examples.py
       - name: Fail on differences
         run: |
           git add --intent-to-add --all
-          git diff --exit-code --stat -- src/pyxaf/catalogue docs/reference
+          git diff --exit-code --stat -- src/pyxaf/catalogue docs/reference examples
 
   experimental:
     name: Experimental (${{ matrix.python }}, non-blocking)

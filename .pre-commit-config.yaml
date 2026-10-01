@@ -10,6 +10,7 @@ exclude: |
   (?x)^(
     src/pyxaf/schemas/.*|
     src/pyxaf/catalogue/_generated_.*\.py|
+    examples/.*\.xaf|
     tests/fixtures/.*|
     tests/data/.*
   )$

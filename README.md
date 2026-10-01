@@ -88,8 +88,15 @@ Using uv? `uv add pyxaf` works the same way, for example `uv add "pyxaf[cli,pola
 
 ## 🚀 Quickstart
 
-Grab an auditfile exported from your accounting software. The examples use `2024.xaf`, but any
-version works, and so do `.gz` and `.zip` files.
+Download the two sample files into an empty folder. They hold a small, made-up ledger:
+`2024.xaf` is valid, and `2024-broken.xaf` is the same file with one mistyped amount.
+
+```console
+curl -L -O https://raw.githubusercontent.com/SpireflyHQ/pyxaf/main/examples/2024.xaf \
+        -O https://raw.githubusercontent.com/SpireflyHQ/pyxaf/main/examples/2024-broken.xaf
+```
+
+Your own exports work exactly the same way: any version, and `.gz` or `.zip` files too.
 
 ### 1. Open the file
 
@@ -142,18 +149,21 @@ af.close()
 ### 3. Validate it
 
 ```python
-report = pyxaf.validate("2024.xaf")
-print(report.ok)
-for finding in report.errors:
-    print(finding.code, finding.line, finding.message)
+for name in ["2024.xaf", "2024-broken.xaf"]:
+    report = pyxaf.validate(name)
+    print(name, report.ok)
+    for finding in report.errors:
+        print("   ", finding.code, finding.line, finding.message)
 ```
 
-A clean file prints `True`. A file in which someone typed `3621.16` instead of `3612.16` prints:
+The valid file passes. In the broken one someone typed `3621.16` instead of `3612.16`, and pyxaf
+spots both consequences:
 
 ```text
-False
-XAF5007 None transactions totalDebit 38260.42 ≠ sum of debit lines 38269.42
-XAF5010 223 transaction '1' in journal 'MEM' does not balance: debit 3621.16, credit 3612.16
+2024.xaf True
+2024-broken.xaf False
+    XAF5007 None transactions totalDebit 38260.42 ≠ sum of debit lines 38269.42
+    XAF5010 223 transaction '1' in journal 'MEM' does not balance: debit 3621.16, credit 3612.16
 ```
 
 Every finding has a stable code, a severity (`ERROR`, `WARNING` or `INFO`) and, where possible,

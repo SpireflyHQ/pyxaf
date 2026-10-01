@@ -159,6 +159,7 @@ extend-exclude = [
     "src/pyxaf/schemas/",                      # official XSDs, verbatim
     "src/pyxaf/catalogue/_generated_*.py",     # generated from the XSDs (ISO currency/country codes)
     "scripts/data/",                           # derived path tables
+    "examples/*.xaf",                          # synthetic sample files (Dutch)
     "uv.lock",
 ]
 

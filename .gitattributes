@@ -11,3 +11,4 @@ tests/data/** -text
 src/pyxaf/catalogue/_generated_*.py linguist-generated=true
 docs/reference/codes.md linguist-generated=true
 docs/reference/tables.md linguist-generated=true
+examples/*.xaf linguist-generated=true

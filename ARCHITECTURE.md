@@ -67,6 +67,7 @@ Outside the package:
   (XSD-valid), so most tests build their input instead of reading fixture files.
 - `scripts/`: code generators for the catalogues and the generated documentation pages.
 - `benchmarks/`: the throughput and memory benchmark.
+- `examples/`: synthetic sample files for the README quickstart (generated).
 - `docs/`: the documentation site (Zensical, configured in `zensical.toml`).
 - `noxfile.py`: developer tasks (`uvx nox -l`).
 

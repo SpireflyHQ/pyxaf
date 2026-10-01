@@ -7,6 +7,7 @@ through nox (`uvx nox -s generate`) or directly with `uv run`.
 |---|---|
 | `gen_catalogues.py` | Generates `src/pyxaf/catalogue/_generated_*.py` from the XSDs in `src/pyxaf/schemas/` and the XAF 3.0/3.1 path lists in `data/`. Needs the `gen` dependency group. |
 | `gen_docs.py` | Generates `docs/reference/codes.md` and `docs/reference/tables.md` from the code. `--check` fails when they are out of date. |
+| `gen_examples.py` | Generates the synthetic sample files in `examples/` (used by the README quickstart) from `tests/xafgen.py`. |
 | `griffe_rst.py` | A griffe extension used by the docs build to render the reST roles in docstrings as Markdown. |
 
 The generated files are committed. CI regenerates them and fails if the result differs.

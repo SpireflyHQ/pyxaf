@@ -80,6 +80,14 @@ pip install "pyxaf[all]"            # everything
 
 ## Quick start
 
+No auditfile at hand? Download a synthetic sample (`2024-broken.xaf` is the same ledger with one
+mistyped amount):
+
+```console
+curl -L -O https://raw.githubusercontent.com/SpireflyHQ/pyxaf/main/examples/2024.xaf \
+        -O https://raw.githubusercontent.com/SpireflyHQ/pyxaf/main/examples/2024-broken.xaf
+```
+
 ```python
 import pyxaf
 

@@ -58,10 +58,11 @@ def tests_core(session: nox.Session) -> None:
 
 @nox.session(default=False)
 def generate(session: nox.Session) -> None:
-    """Regenerate the field catalogues from the XSDs and the generated docs pages."""
+    """Regenerate the field catalogues, the generated docs pages and the sample files."""
     _sync(session, "--group", "gen", "--group", "docs")
     session.run("python", "scripts/gen_catalogues.py")
     session.run("python", "scripts/gen_docs.py")
+    session.run("python", "scripts/gen_examples.py")
 
 
 @nox.session(default=False)

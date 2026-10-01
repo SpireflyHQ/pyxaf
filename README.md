@@ -1,11 +1,11 @@
-# pyxaf
+# 📒 pyxaf
 
 [![CI](https://github.com/SpireflyHQ/pyxaf/actions/workflows/ci.yml/badge.svg)](https://github.com/SpireflyHQ/pyxaf/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/pyxaf)](https://pypi.org/project/pyxaf/)
 [![Python](https://img.shields.io/pypi/pyversions/pyxaf)](https://pypi.org/project/pyxaf/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://github.com/SpireflyHQ/pyxaf/blob/main/LICENSE)
 
-**Read and validate every version of the Dutch Auditfile Financieel in plain Python.** 🇳🇱
+**Read and validate every version of the Dutch Auditfile Financieel in plain Python.**
 
 The *Auditfile Financieel* is the standard export of a general ledger that Dutch accounting
 software produces for tax inspectors and auditors. pyxaf opens all seven versions of it, from the
@@ -20,12 +20,26 @@ with pyxaf.open("2024.xaf") as af:
     print(af.version, af.company.name)  # 4.0 Voorbeeld & Zonen B.V.
 ```
 
-**Contents:** [Why pyxaf](#why-pyxaf) · [Installation](#installation) ·
-[Quickstart](#quickstart) · [More examples](#more-examples) ·
-[Supported versions](#supported-versions) · [Documentation](#documentation) ·
-[Contributing](#contributing) · [License](#license-and-attribution)
+## 🧭 Table of contents
 
-## Why pyxaf
+- [Why pyxaf](#-why-pyxaf)
+- [Installation](#-installation)
+- [Quickstart](#-quickstart)
+  - [1. Open the file](#1-open-the-file)
+  - [2. Walk through the transactions](#2-walk-through-the-transactions)
+  - [3. Validate it](#3-validate-it)
+  - [4. Or use the command line](#4-or-use-the-command-line)
+- [More examples](#-more-examples)
+  - [Export to tables](#export-to-tables)
+  - [Query with DuckDB or pyarrow](#query-with-duckdb-or-pyarrow)
+  - [Check RGS codes](#check-rgs-codes)
+  - [Split files and problem files](#split-files-and-problem-files)
+- [Supported versions](#-supported-versions)
+- [Documentation](#-documentation)
+- [Contributing](#-contributing)
+- [License and attribution](#-license-and-attribution)
+
+## ✨ Why pyxaf
 
 Real auditfiles are messy. Official test files break the official rules, vendors invent their own
 namespaces, and an "ISO-8859-1" file turns out to be Windows-1252. pyxaf was built for those files.
@@ -39,7 +53,7 @@ namespaces, and an "ISO-8859-1" file turns out to be Windows-1252. pyxaf was bui
 - **A validator on your own machine.** The official validation service is for subscribers and
   stops at 5 MB. pyxaf checks files of any size: structure, references, control totals,
   balance, uniqueness, data quality and RGS codes, including the official XAF 4.0 rules
-  [0001]–[0010]. 🔍
+  [0001]–[0010].
 - **Exact money.** Amounts are `decimal.Decimal`, never `float`, with the original text kept
   next to every parsed value.
 - **Streaming.** Master data is read when the file opens; transactions and lines are streamed,
@@ -50,7 +64,7 @@ namespaces, and an "ISO-8859-1" file turns out to be Windows-1252. pyxaf was bui
   laughs", no XXE), nesting, text and decompression sizes are capped, and there is no "recover"
   mode that could quietly lose data.
 
-## Installation
+## 📦 Installation
 
 pyxaf needs Python 3.11 or newer.
 
@@ -72,7 +86,7 @@ The core has no dependencies. Add an extra for each optional feature you need:
 
 Using uv? `uv add pyxaf` works the same way, for example `uv add "pyxaf[cli,polars]"`.
 
-## Quickstart
+## 🚀 Quickstart
 
 Grab an auditfile exported from your accounting software. The examples use `2024.xaf`, but any
 version works, and so do `.gz` and `.zip` files.
@@ -167,9 +181,9 @@ total credit     38260.42
 ```
 
 `pyxaf validate` exits with 0 when the file is fine, 1 for warnings (with `--strict`), 2 for
-errors and 3 when pyxaf itself could not do its job, so it slots straight into scripts and CI. 🎉
+errors and 3 when pyxaf itself could not do its job, so it slots straight into scripts and CI.
 
-## More examples
+## 🧰 More examples
 
 ### Export to tables
 
@@ -237,7 +251,7 @@ report = pyxaf.validate("2024.xaf", xsd=True)  # also check the official XSD (py
 
 </details>
 
-## Supported versions
+## 📜 Supported versions
 
 | Version | Year | How pyxaf recognises it |
 |---|---|---|
@@ -249,9 +263,9 @@ report = pyxaf.validate("2024.xaf", xsd=True)  # also check the official XSD (py
 | ADF | 1999 | fixed-width ASCII starting with `CLAIR1.00.00` |
 
 From 1 January 2027 the Belastingdienst only accepts XAF 4.0. Older files stay around for years
-because of the seven-year retention period, which is why pyxaf reads them all. 📚
+because of the seven-year retention period, which is why pyxaf reads them all.
 
-## Documentation
+## 📚 Documentation
 
 The full documentation lives at **<https://spireflyhq.github.io/pyxaf/>**:
 
@@ -270,10 +284,10 @@ The full documentation lives at **<https://spireflyhq.github.io/pyxaf/>**:
 Release notes are in the [changelog](https://github.com/SpireflyHQ/pyxaf/blob/main/CHANGELOG.md).
 For questions, see [SUPPORT.md](https://github.com/SpireflyHQ/pyxaf/blob/main/SUPPORT.md).
 
-## Contributing
+## 🤝 Contributing
 
 Contributions are very welcome, especially reports of files from software that pyxaf does not
-handle well yet. 🙌 Start with [CONTRIBUTING.md](https://github.com/SpireflyHQ/pyxaf/blob/main/CONTRIBUTING.md)
+handle well yet. Start with [CONTRIBUTING.md](https://github.com/SpireflyHQ/pyxaf/blob/main/CONTRIBUTING.md)
 for the development setup, and [ARCHITECTURE.md](https://github.com/SpireflyHQ/pyxaf/blob/main/ARCHITECTURE.md)
 for a map of the code. Issues labelled
 [good first issue](https://github.com/SpireflyHQ/pyxaf/labels/good%20first%20issue) are a good
@@ -286,7 +300,7 @@ place to begin.
 Security problems are reported privately, as described in
 [SECURITY.md](https://github.com/SpireflyHQ/pyxaf/blob/main/SECURITY.md).
 
-## License and attribution
+## 📄 License and attribution
 
 pyxaf is released under the [MIT license](https://github.com/SpireflyHQ/pyxaf/blob/main/LICENSE).
 

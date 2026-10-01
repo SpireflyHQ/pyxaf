@@ -38,7 +38,7 @@ jobs:
           python-version: "3.14"
       - name: Tag must match the version in pyproject.toml
         run: |
-          version="$(uv version --short)"
+          version="$(uv version --short --color never)"
           echo "pyproject version: $version, tag: $GITHUB_REF_NAME"
           test "v$version" = "$GITHUB_REF_NAME"
       - name: Pre-release?
